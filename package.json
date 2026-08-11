@@ -1,7 +1,8 @@
 {
-  "name": "my-app",
+  "name": "kankan-shoucang",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",

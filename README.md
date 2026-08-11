@@ -46,3 +46,11 @@ npm run build
 - `GET /media/:noteId/:file`
 
 正式 App 数据目录：`~/Library/Application Support/com.patrick.kankanshoucang/`
+
+笔记数据只存在这个本地目录里，仓库不包含任何收藏内容。
+
+## License
+
+[AGPL-3.0-or-later](LICENSE)
+
+允许商用，但如果你修改本项目并对外分发，或用它提供网络服务，必须以同样的 AGPL 协议公开你的改动源码。
