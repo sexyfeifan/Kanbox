@@ -1,19 +1,25 @@
-# 看看收藏 📌
+<div align="center">
 
-把小红书收藏夹里那些「以后再看」的笔记，变成真的还能找到的东西。
+<img src=".github/assets/icon.png" width="120" alt="看看收藏" />
+
+# 看看收藏
+
+**把小红书收藏夹里那些「以后再看」的笔记，变成真的还能找到的东西。**
+
+<img src="https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white" alt="macOS" />
+<img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
+<img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
+<img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
+
+</div>
+
+---
 
 拖一条笔记进来，本地解析正文、下载配图、跑 OCR 把图里的文字也读出来，然后自动归类到首页。
 
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据全程存在你自己的电脑上，不上传云端，不需要 AI API key。
-
-![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)
-![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
-![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
-
----
 
 ## 🤔 为什么做这个
 
