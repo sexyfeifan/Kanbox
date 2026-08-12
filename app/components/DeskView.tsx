@@ -2435,6 +2435,9 @@ export function DeskView() {
               onClick={() => setExpanded(note)}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
+              batchMode={batchMode}
+              isSelected={selectedNoteIds.has(note.id)}
+              onToggleSelect={() => toggleNoteSelection(note.id)}
             />
           );
         })}
