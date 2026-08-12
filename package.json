@@ -11,7 +11,7 @@
     "test": "node --test scripts/lib/*.test.mjs",
     "desktop:preview": "node ./scripts/desktop-preview.mjs",
     "local-api": "npm run build:native && node ./scripts/local-api.mjs",
-    "tauri": "tauri",
+    "tauri": "npm run build:native && tauri",
     "tauri:build": "npm run build:native && tauri build",
     "tauri:dev": "npm run build:native && tauri dev",
     "lint": "eslint app scripts next.config.ts"
