@@ -99,6 +99,66 @@ function collectImages() {
   return Array.from(urls).slice(0, 20);
 }
 
+function collectVideoUrl() {
+  const candidates = [];
+  const addCandidate = (value, context, baseScore = 0) => {
+    const url = normalizeNoteVideoUrl(value);
+    if (!url) return;
+    const parsed = new URL(url);
+    const score = baseScore
+      + (/video/i.test(parsed.hostname) ? 6 : 0)
+      + (/video|media|stream|h264|h265|avc|hevc|master|originVideo/i.test(context) ? 5 : 0)
+      + (/video|stream/i.test(parsed.pathname) ? 2 : 0)
+      - (/webpic|image|avatar|cover/i.test(`${parsed.hostname} ${context}`) ? 8 : 0);
+    if (score >= 5) candidates.push({ url, score });
+  };
+
+  addCandidate(cachedPageData?.videoUrl, 'cached video state', 20);
+  document.querySelectorAll('video, video source').forEach((node) => {
+    addCandidate(node.currentSrc, 'video currentSrc', 15);
+    for (const attribute of ['src', 'data-src', 'data-url', 'data-video-src']) {
+      addCandidate(node.getAttribute(attribute), `video ${attribute}`, 12);
+    }
+  });
+  addCandidate(metaContent('og:video'), 'og video', 10);
+  addCandidate(metaContent('og:video:url'), 'og video url', 10);
+
+  performance.getEntriesByType('resource').forEach((entry) => {
+    addCandidate(entry.name, `${entry.initiatorType || ''} performance resource`, entry.initiatorType === 'video' ? 12 : 0);
+  });
+
+  document.querySelectorAll('script').forEach((script) => {
+    const text = script.textContent || '';
+    if (!/xhs(?:cdn|img)\.com/i.test(text) || text.length > 12 * 1024 * 1024) return;
+    const matches = text.matchAll(/https?(?::|%3A)(?:(?:\\u002[fF]|\\\/|\/)){2}[^"'\s<]+/g);
+    for (const match of matches) {
+      const decoded = match[0]
+        .replace(/%3A/gi, ':')
+        .replace(/\\u002[fF]/g, '/')
+        .replace(/\\u0026/gi, '&')
+        .replace(/\\u003[dD]/g, '=')
+        .replace(/\\\//g, '/');
+      addCandidate(decoded, 'embedded video stream');
+    }
+  });
+
+  return candidates.sort((a, b) => b.score - a.score)[0]?.url || '';
+}
+
+function normalizeNoteVideoUrl(value) {
+  if (typeof value !== 'string') return '';
+  try {
+    const url = new URL(value.replace(/^http:/i, 'https:'));
+    return url.protocol === 'https:'
+      && (url.hostname.endsWith('.xhscdn.com') || url.hostname.endsWith('.xhsimg.com'))
+      && !/\.(?:avif|gif|heic|heif|jpe?g|png|webp)(?:$|\?)/i.test(url.pathname)
+      ? url.toString()
+      : '';
+  } catch {
+    return '';
+  }
+}
+
 function collectTags() {
   const tags = new Set();
   document.querySelectorAll('#detail-desc a, .desc a, [class*="desc"] a').forEach((node) => {
@@ -121,6 +181,11 @@ function captureCurrentNote() {
     || metaContent('description')
     || metaContent('og:description');
   const imageUrls = collectImages();
+  const videoUrl = collectVideoUrl();
+  const type = cachedPageData?.type === 'video' || document.querySelector('video') ? 'video' : 'normal';
+  if (type === 'video' && !videoUrl) {
+    throw new Error('没有读取到视频，请先播放几秒再试');
+  }
 
   return {
     id,
@@ -129,6 +194,7 @@ function captureCurrentNote() {
     content,
     imageUrls,
     coverUrl: imageUrls[0] || '',
+    videoUrl,
     author: {
       name: cachedPageData?.author?.name
         || firstText(['.author-wrapper .username', '.author-wrapper [class*="name"]', '[class*="author"] .username']),
@@ -138,7 +204,7 @@ function captureCurrentNote() {
       userId: cachedPageData?.author?.userId || '',
     },
     tags: collectTags(),
-    type: document.querySelector('video') ? 'video' : 'normal',
+    type,
   };
 }
 

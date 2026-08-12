@@ -87,8 +87,9 @@ export function inferCategoryFromNote(note) {
   const content = typeof note?.content === 'string' ? note.content : '';
   const rawContent = typeof note?.rawContent === 'string' ? note.rawContent : '';
   const ocrText = typeof note?.ocrText === 'string' ? note.ocrText : '';
+  const transcriptText = typeof note?.transcriptText === 'string' ? note.transcriptText : '';
   const tags = Array.isArray(note?.tags) ? note.tags.filter(Boolean).join(' ') : '';
-  const source = `${title}\n${content}\n${rawContent}\n${ocrText}\n${tags}`;
+  const source = `${title}\n${content}\n${rawContent}\n${ocrText}\n${transcriptText}\n${tags}`;
   const scores = new Map();
 
   for (const rule of CATEGORY_RULES) {

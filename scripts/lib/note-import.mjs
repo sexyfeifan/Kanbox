@@ -110,6 +110,11 @@ function normalizeImageUrls(value) {
     .slice(0, 20);
 }
 
+function normalizeVideoUrl(value) {
+  const candidate = cleanText(value, 5000);
+  return /^https:\/\//i.test(candidate) ? candidate : '';
+}
+
 export function normalizeImportedNote(payload) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('没有读取到笔记内容');
@@ -133,6 +138,9 @@ export function normalizeImportedNote(payload) {
 
   const imageUrls = normalizeImageUrls(payload.imageUrls);
   const type = payload.type === 'video' ? 'video' : 'normal';
+  const sourceVideoUrl = type === 'video'
+    ? normalizeVideoUrl(payload.videoUrl || payload.sourceVideoUrl)
+    : '';
 
   return {
     id: noteId.toLowerCase(),
@@ -147,6 +155,13 @@ export function normalizeImportedNote(payload) {
     imageOcr: [],
     mediaStatus: imageUrls.length > 0 ? 'pending' : 'none',
     mediaError: '',
+    sourceVideoUrl,
+    videoUrl: '',
+    videoDuration: 0,
+    transcriptText: '',
+    transcriptSegments: [],
+    videoStatus: sourceVideoUrl ? 'pending' : 'none',
+    videoError: '',
     author: {
       name: cleanText(payload.author?.name, 200) || '未知作者',
       avatar: cleanText(payload.author?.avatar, 3000),

@@ -1,6 +1,6 @@
 [package]
 name = "kan-kan-shou-cang"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local desktop shell for 看看收藏"
 authors = ["Patrick"]
 edition = "2021"

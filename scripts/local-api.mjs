@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { inferCategoryFromNote } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
 import { localizeNoteMedia } from './lib/media-import.mjs';
+import { localizeNoteVideo, reanalyzeStoredNoteVideo } from './lib/video-import.mjs';
 import { resolveAnonymousNote } from './lib/anonymous-note-resolver.mjs';
 import {
   extractNoteIdFromUrl,
@@ -333,7 +334,14 @@ async function importNote(body = {}) {
       }));
     }
   }
-  const imported = await localizeNoteMedia(normalized, {
+  if (normalized.type === 'video' && !normalized.sourceVideoUrl) {
+    throw new Error('没有读取到视频地址，请在笔记详情页播放几秒后重新导入');
+  }
+  const withImages = await localizeNoteMedia(normalized, {
+    mediaDirectory,
+    publicBaseUrl,
+  });
+  const imported = await localizeNoteVideo(withImages, {
     mediaDirectory,
     publicBaseUrl,
   });
@@ -390,6 +398,29 @@ function queueNoteDelete(noteId) {
   return queueMutation(() => deleteNote(noteId));
 }
 
+async function reanalyzeNoteVideo(noteId) {
+  const notes = await readNotes();
+  const noteIndex = notes.findIndex((note) => note.id === noteId);
+  if (noteIndex < 0) return null;
+
+  const updatedNote = await reanalyzeStoredNoteVideo(notes[noteIndex], {
+    mediaDirectory,
+    publicBaseUrl,
+  });
+  const updatedNotes = [...notes];
+  updatedNotes[noteIndex] = updatedNote;
+  await writeNotes(updatedNotes);
+  return {
+    notes: updatedNotes,
+    note: updatedNote,
+    lastImportedAt: getLastImportedAt(updatedNotes),
+  };
+}
+
+function queueVideoReanalysis(noteId) {
+  return queueMutation(() => reanalyzeNoteVideo(noteId));
+}
+
 async function sendMediaFile(request, response, pathname) {
   const match = pathname.match(/^\/media\/([0-9a-f]{24})\/(\d{2}\.(?:avif|gif|heic|heif|jpg|png|webp))$/i);
   if (!match) return false;
@@ -406,6 +437,49 @@ async function sendMediaFile(request, response, pathname) {
     response.end(body);
   } catch {
     sendJson(request, response, 404, { ok: false, error: 'Image not found' });
+  }
+  return true;
+}
+
+async function sendVideoFile(request, response, pathname) {
+  const match = pathname.match(/^\/media\/([0-9a-f]{24})\/video\.mp4$/i);
+  if (!match) return false;
+  const filePath = path.join(mediaDirectory, match[1].toLowerCase(), 'video.mp4');
+  try {
+    const fileStats = await stat(filePath);
+    const range = request.headers.range;
+    applyCorsHeaders(request, response);
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    response.setHeader('Content-Type', 'video/mp4');
+
+    if (range) {
+      const rangeMatch = range.match(/^bytes=(\d*)-(\d*)$/);
+      if (!rangeMatch) {
+        response.writeHead(416, { 'Content-Range': `bytes */${fileStats.size}` });
+        response.end();
+        return true;
+      }
+      const start = rangeMatch[1] ? Number.parseInt(rangeMatch[1], 10) : 0;
+      const requestedEnd = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : fileStats.size - 1;
+      const end = Math.min(requestedEnd, fileStats.size - 1);
+      if (start < 0 || start > end || start >= fileStats.size) {
+        response.writeHead(416, { 'Content-Range': `bytes */${fileStats.size}` });
+        response.end();
+        return true;
+      }
+      response.writeHead(206, {
+        'Content-Length': end - start + 1,
+        'Content-Range': `bytes ${start}-${end}/${fileStats.size}`,
+      });
+      createReadStream(filePath, { start, end }).pipe(response);
+      return true;
+    }
+
+    response.writeHead(200, { 'Content-Length': fileStats.size });
+    createReadStream(filePath).pipe(response);
+  } catch {
+    sendJson(request, response, 404, { ok: false, error: 'Video not found' });
   }
   return true;
 }
@@ -470,6 +544,10 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && await sendVideoFile(request, response, url.pathname)) {
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/notes') {
       sendJson(request, response, 200, await buildNotesResponse());
       return;
@@ -477,6 +555,17 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/notes/import') {
       sendJson(request, response, 200, await queueNoteImport(await readRequestBody(request)));
+      return;
+    }
+
+    const transcribeNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/transcribe$/i);
+    if (request.method === 'POST' && transcribeNoteMatch) {
+      const result = await queueVideoReanalysis(transcribeNoteMatch[1].toLowerCase());
+      if (!result) {
+        sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
+        return;
+      }
+      sendJson(request, response, 200, result);
       return;
     }
 

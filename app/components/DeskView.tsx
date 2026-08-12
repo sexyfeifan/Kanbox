@@ -19,6 +19,9 @@ import {
   Puzzle,
   Bot,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  Play,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -47,6 +50,12 @@ import {
   EXPANDED_GRID_GAP_Y,
 } from '../lib/desk-card-metrics.mjs';
 import { shouldUseLightweightCanvas } from '../lib/desk-performance.mjs';
+import {
+  formatMediaTime,
+  paginatePlainText,
+  paginateTimedSegments,
+} from '../lib/video-transcript.mjs';
+import { stripDuplicateTagSuffix } from '../lib/note-content.mjs';
 import { filterNotesByQuery } from '../../scripts/lib/note-search.mjs';
 import {
   createDeskGroup,
@@ -247,14 +256,47 @@ function ExpandedCard({
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showOcr, setShowOcr] = useState(false);
+  const [readerTab, setReaderTab] = useState<'note' | 'transcript'>(
+    note.type === 'video' ? 'transcript' : 'note',
+  );
+  const [readerPage, setReaderPage] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const sourceImageUrls = Array.from(new Set(
     note.imageUrls?.length ? note.imageUrls : (note.coverUrl ? [note.coverUrl] : []),
   ));
   const imageUrls = sourceImageUrls.filter(imageUrl => !failedImageUrls.has(imageUrl));
   const resolvedImageIndex = Math.min(activeImageIndex, Math.max(imageUrls.length - 1, 0));
   const activeImageUrl = imageUrls[resolvedImageIndex];
-  const rawContent = (note.rawContent || '').trim();
+  const rawContent = stripDuplicateTagSuffix(note.rawContent || '', note.tags);
   const ocrText = (note.ocrText || '').trim();
+  const isVideo = note.type === 'video' && Boolean(note.videoUrl);
+  const notePages = useMemo(
+    () => paginatePlainText(rawContent || '这条笔记没有可见正文。') as string[],
+    [rawContent],
+  );
+  const transcriptPages = useMemo(
+    () => paginateTimedSegments(note.transcriptSegments || []) as Array<Array<{
+      start: number;
+      duration: number;
+      text: string;
+    }>>,
+    [note.transcriptSegments],
+  );
+  const readerPages = readerTab === 'transcript'
+    ? transcriptPages
+    : notePages;
+  const resolvedReaderPage = Math.min(readerPage, Math.max(readerPages.length - 1, 0));
+
+  const changeReaderTab = (tab: 'note' | 'transcript') => {
+    setReaderTab(tab);
+    setReaderPage(0);
+  };
+
+  const seekVideo = (time: number) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = Math.max(0, time);
+    void videoRef.current.play();
+  };
 
   const markImageFailed = (imageUrl: string) => {
     setFailedImageUrls(current => {
@@ -307,7 +349,7 @@ function ExpandedCard({
           minWidth: 0,
           position: 'relative',
         }}>
-          {imageUrls.length > 1 && (
+          {!isVideo && imageUrls.length > 1 && (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -362,7 +404,20 @@ function ExpandedCard({
             padding: 28,
             overflow: 'hidden',
           }}>
-            {activeImageUrl ? (
+            {isVideo ? (
+              <video
+                ref={videoRef}
+                src={note.videoUrl}
+                poster={note.coverUrl || undefined}
+                controls
+                playsInline
+                preload="metadata"
+                style={{
+                  width: '100%', height: '100%', objectFit: 'contain', display: 'block',
+                  background: '#171715', borderRadius: 12,
+                }}
+              />
+            ) : activeImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={activeImageUrl}
@@ -397,7 +452,7 @@ function ExpandedCard({
             >
               <X size={15} color="#404047" strokeWidth={2} />
             </button>
-            {imageUrls.length > 1 && (
+            {!isVideo && imageUrls.length > 1 && (
               <div style={{
                 position: 'absolute', right: 16, bottom: 16, padding: '5px 10px', borderRadius: 999,
                 background: 'rgba(50,48,44,0.72)', color: '#fff', fontSize: 10.5,
@@ -465,15 +520,115 @@ function ExpandedCard({
             <span>{formatDate(note.savedAt)}</span>
           </div>
 
-          <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '24px 0' }} />
-          <p style={{
-            margin: 0, fontSize: 13.5, color: '#5E5A54', lineHeight: 1.9,
-            whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
-          }}>
-            {rawContent || '这条笔记没有可见正文。'}
-          </p>
+          {note.type === 'video' ? (
+            <div style={{
+              display: 'flex', gap: 3, margin: '24px 0 22px', padding: 3,
+              borderRadius: 12, background: 'rgba(72,67,58,0.055)',
+            }}>
+              {([
+                ['note', '笔记正文'],
+                ['transcript', '视频文稿'],
+              ] as const).map(([tab, label]) => {
+                const active = readerTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => changeReaderTab(tab)}
+                    style={{
+                      flex: 1, height: 34, border: 'none', borderRadius: 9,
+                      background: active ? '#FDFCFA' : 'transparent',
+                      boxShadow: active ? '0 2px 9px rgba(62,54,41,0.08)' : 'none',
+                      color: active ? '#46433E' : '#99938B',
+                      fontSize: 11.5, fontWeight: active ? 600 : 500, cursor: 'pointer',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ height: 1, background: 'rgba(0,0,0,0.06)', margin: '24px 0' }} />
+          )}
 
-          {Array.isArray(note.tags) && note.tags.length > 0 && (
+          {readerTab === 'note' && (
+            <p style={{
+              margin: 0, fontSize: 13.5, color: '#5E5A54', lineHeight: 1.9,
+              whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+            }}>
+              {notePages[resolvedReaderPage] || '这条笔记没有可见正文。'}
+            </p>
+          )}
+
+          {readerTab === 'transcript' && (
+            transcriptPages.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+                {transcriptPages[resolvedReaderPage]?.map((segment, index) => (
+                  <div key={`${segment.start}-${index}`} style={{ display: 'grid', gridTemplateColumns: '42px 1fr', gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => seekVideo(segment.start)}
+                      style={{
+                        alignSelf: 'start', border: 'none', borderRadius: 7, padding: '4px 0',
+                        background: `${color}14`, color, fontSize: 10, cursor: isVideo ? 'pointer' : 'default',
+                      }}
+                    >
+                      {formatMediaTime(segment.start)}
+                    </button>
+                    <p style={{ margin: 0, color: '#5E5A54', fontSize: 13.5, lineHeight: 1.8 }}>
+                      {segment.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ margin: 0, color: '#9A958D', fontSize: 12.5, lineHeight: 1.8 }}>
+                {note.videoError || '这条视频没有识别到可转写的语音。'}
+              </p>
+            )
+          )}
+
+          {readerPages.length > 1 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
+              marginTop: 24, paddingTop: 16, borderTop: '1px solid rgba(0,0,0,0.05)',
+            }}>
+              <button
+                type="button"
+                aria-label="上一页"
+                onClick={() => setReaderPage((page) => Math.max(0, page - 1))}
+                disabled={resolvedReaderPage === 0}
+                style={{
+                  width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.06)',
+                  background: '#F8F6F2', color: '#777168', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', cursor: resolvedReaderPage === 0 ? 'default' : 'pointer',
+                  opacity: resolvedReaderPage === 0 ? 0.35 : 1,
+                }}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span style={{ color: '#AAA49C', fontSize: 10.5 }}>
+                {resolvedReaderPage + 1} / {readerPages.length}
+              </span>
+              <button
+                type="button"
+                aria-label="下一页"
+                onClick={() => setReaderPage((page) => Math.min(readerPages.length - 1, page + 1))}
+                disabled={resolvedReaderPage >= readerPages.length - 1}
+                style={{
+                  width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(0,0,0,0.06)',
+                  background: '#F8F6F2', color: '#777168', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', cursor: resolvedReaderPage >= readerPages.length - 1 ? 'default' : 'pointer',
+                  opacity: resolvedReaderPage >= readerPages.length - 1 ? 0.35 : 1,
+                }}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+
+          {readerTab === 'note' && Array.isArray(note.tags) && note.tags.length > 0 && (
             <div style={{
               display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 22,
             }}>
@@ -486,7 +641,7 @@ function ExpandedCard({
             </div>
           )}
 
-          {ocrText && (
+          {readerTab === 'note' && ocrText && (
             <div style={{ marginTop: 26, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 18 }}>
               <button type="button" onClick={() => setShowOcr((value) => !value)}
                 style={{
@@ -518,6 +673,12 @@ function ExpandedCard({
           {note.mediaStatus === 'partial' && (
             <p style={{ marginTop: 16, fontSize: 10.5, color: '#B56A5B', lineHeight: 1.5 }}>
               {note.mediaError || '部分图片或文字未能完整保存。'}
+            </p>
+          )}
+
+          {note.videoStatus === 'partial' && note.videoError && readerTab === 'note' && (
+            <p style={{ marginTop: 16, fontSize: 10.5, color: '#B56A5B', lineHeight: 1.5 }}>
+              {note.videoError}
             </p>
           )}
 
@@ -609,6 +770,7 @@ function DeskCard({
             overflow: 'hidden',
             height: CARD_IMAGE_H,
             background: '#f0f0f0',
+            position: 'relative',
           }}>
             {note.coverUrl ? (
               <>
@@ -634,6 +796,16 @@ function DeskCard({
               }}>
                 {note.title.slice(0, 1)}
               </div>
+            )}
+            {note.type === 'video' && (
+              <span style={{
+                position: 'absolute', top: 7, right: 7, width: 23, height: 23,
+                borderRadius: '50%', background: 'rgba(42,40,36,0.72)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                backdropFilter: 'blur(6px)', boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
+              }}>
+                <Play size={10} fill="currentColor" strokeWidth={1.5} style={{ marginLeft: 1 }} />
+              </span>
             )}
           </div>
 
@@ -1023,8 +1195,8 @@ export function DeskView() {
         ...current,
         phase: 'processing',
         message: draggedCard
-          ? '正在匿名解析正文和图片…'
-          : '正在保存图片与文字…',
+          ? '正在匿名解析正文和媒体…'
+          : '正在保存媒体并提取文字…',
       }));
 
       const result = await importSharedNote(input);
@@ -1222,7 +1394,10 @@ export function DeskView() {
             onDrop={handleExternalDrop}
             style={{
               position: 'fixed',
-              inset: 0,
+              inset: importFeedback.phase === 'dragging' ? 0 : 'auto',
+              top: importFeedback.phase === 'dragging' ? 0 : 56,
+              left: importFeedback.phase === 'dragging' ? 0 : '50%',
+              transform: importFeedback.phase === 'dragging' ? undefined : 'translateX(-50%)',
               zIndex: 220,
               display: 'flex',
               alignItems: 'center',
@@ -1230,8 +1405,8 @@ export function DeskView() {
               background: importFeedback.phase === 'dragging'
                 ? 'rgba(235,233,228,0.58)'
                 : 'rgba(235,233,228,0.82)',
-              backdropFilter: importFeedback.phase === 'dragging' ? 'blur(5px)' : 'blur(10px)',
-              WebkitBackdropFilter: importFeedback.phase === 'dragging' ? 'blur(5px)' : 'blur(10px)',
+              backdropFilter: importFeedback.phase === 'dragging' ? 'blur(5px)' : 'none',
+              WebkitBackdropFilter: importFeedback.phase === 'dragging' ? 'blur(5px)' : 'none',
               pointerEvents: importFeedback.phase === 'dragging' ? 'auto' : 'none',
               boxShadow: importFeedback.phase === 'dragging'
                 ? 'inset 0 0 0 2px rgba(130,153,135,0.52)'
@@ -1256,39 +1431,40 @@ export function DeskView() {
               </motion.div>
             ) : (
               <motion.div
-                layout initial={{ scale: 0.94, y: 10 }} animate={{ scale: 1, y: 0 }}
-                transition={{ duration: 0.22 }}
+                layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}
                 style={{
-                  minWidth: 340, maxWidth: 560, display: 'flex', alignItems: 'center', gap: 15,
-                  padding: '15px 20px', borderRadius: 20,
+                  maxWidth: 480, display: 'flex', alignItems: 'center', gap: 9,
+                  padding: '10px 15px', borderRadius: 999,
                   color: importFeedback.phase === 'error' ? '#8F5146' : '#4F6254',
-                  background: 'rgba(253,252,250,0.94)', border: '1px solid rgba(130,153,135,0.22)',
-                  boxShadow: '0 22px 70px rgba(73,56,28,0.13)',
+                  background: 'rgba(253,252,250,0.92)', border: '1px solid rgba(94,105,95,0.12)',
+                  backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+                  boxShadow: '0 8px 28px rgba(73,56,28,0.10)',
                 }}
               >
-                <motion.div
-                  animate={importFeedback.phase === 'processing' ? { rotate: 360 } : { rotate: 0 }}
+                <motion.span
+                  animate={importFeedback.phase === 'processing'
+                    ? { opacity: [0.35, 1, 0.35], scale: [0.82, 1, 0.82] }
+                    : { opacity: 1, scale: 1 }}
                   transition={importFeedback.phase === 'processing'
-                    ? { duration: 1, repeat: Infinity, ease: 'linear' }
-                    : { duration: 0.2 }}
+                    ? { duration: 1.15, repeat: Infinity, ease: 'easeInOut' }
+                    : { duration: 0.16 }}
                   style={{
-                    width: 40, height: 40, flexShrink: 0, borderRadius: 13,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: importFeedback.phase === 'error' ? 'rgba(181,106,91,0.12)' : 'rgba(130,153,135,0.14)',
+                    width: 7, height: 7, flexShrink: 0, borderRadius: '50%',
+                    background: importFeedback.phase === 'error' ? '#B56A5B' : '#829987',
                   }}
-                >
-                  {importFeedback.phase === 'processing' ? <Loader2 size={19} />
-                    : importFeedback.phase === 'complete' || importFeedback.phase === 'recognized' ? <Check size={19} strokeWidth={2.2} />
-                      : <X size={19} strokeWidth={2.2} />}
-                </motion.div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{
-                    fontFamily: '"Playfair Display", Georgia, serif', fontSize: 17, fontWeight: 600,
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>{importFeedback.title}</div>
-                  {importFeedback.message && (
-                    <div style={{ marginTop: 3, fontSize: 11.5, color: '#78716C' }}>{importFeedback.message}</div>
-                  )}
+                />
+                <div style={{
+                  minWidth: 0, maxWidth: 430, fontSize: 12, fontWeight: 550,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {importFeedback.phase === 'processing'
+                    ? importFeedback.message
+                    : importFeedback.phase === 'complete'
+                      ? `已收录 · ${importFeedback.title}`
+                      : importFeedback.phase === 'recognized'
+                        ? '已接收'
+                        : `${importFeedback.title}${importFeedback.message ? ` · ${importFeedback.message}` : ''}`}
                 </div>
               </motion.div>
             )}

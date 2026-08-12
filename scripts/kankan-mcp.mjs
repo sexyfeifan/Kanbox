@@ -52,7 +52,7 @@ async function readNotes() {
 }
 
 function noteExcerpt(note) {
-  return String(note.rawContent || note.content || note.ocrText || '')
+  return String(note.rawContent || note.content || note.transcriptText || note.ocrText || '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 320);
@@ -76,6 +76,8 @@ function fullNote(note) {
     sourceUrl: note.sourceUrl || null,
     content: note.rawContent || note.content || '',
     ocrText: note.ocrText || '',
+    transcriptText: note.transcriptText || '',
+    transcriptSegments: Array.isArray(note.transcriptSegments) ? note.transcriptSegments : [],
     imageOcr: Array.isArray(note.imageOcr)
       ? note.imageOcr.map((entry, index) => ({
           image: index + 1,
@@ -89,7 +91,7 @@ function fullNote(note) {
 const tools = [
   {
     name: 'search_saved_notes',
-    description: '搜索“看看收藏”里已经保存到本机的笔记。覆盖标题、正文、图片 OCR、标签、作者和分类；不会访问小红书账号或网络。',
+    description: '搜索“看看收藏”里已经保存到本机的笔记。覆盖标题、正文、视频文稿、图片 OCR、标签、作者和分类；不会访问小红书账号或网络。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -102,7 +104,7 @@ const tools = [
   },
   {
     name: 'read_saved_note',
-    description: '按笔记 ID 读取一条已保存笔记的完整正文和图片 OCR 文本。只读本机数据。',
+    description: '按笔记 ID 读取一条已保存笔记的完整正文、视频文稿和 OCR 文本。只读本机数据。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -211,4 +213,3 @@ process.stdin.on('data', (chunk) => {
     })();
   }
 });
-

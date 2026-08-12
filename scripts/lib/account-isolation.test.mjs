@@ -5,13 +5,15 @@ import test from 'node:test';
 const manifestUrl = new URL('../../browser-extension/manifest.json', import.meta.url);
 const backgroundUrl = new URL('../../browser-extension/background.js', import.meta.url);
 const contentUrl = new URL('../../browser-extension/content.js', import.meta.url);
+const pageDataUrl = new URL('../../browser-extension/page-data.js', import.meta.url);
 const mcpServerUrl = new URL('../kankan-mcp.mjs', import.meta.url);
 
 test('browser extension cannot open hidden tabs or read account credentials', async () => {
-  const [manifestRaw, background, content] = await Promise.all([
+  const [manifestRaw, background, content, pageData] = await Promise.all([
     readFile(manifestUrl, 'utf8'),
     readFile(backgroundUrl, 'utf8'),
     readFile(contentUrl, 'utf8'),
+    readFile(pageDataUrl, 'utf8'),
   ]);
   const manifest = JSON.parse(manifestRaw);
   const permissions = manifest.permissions || [];
@@ -19,7 +21,7 @@ test('browser extension cannot open hidden tabs or read account credentials', as
   assert.equal(permissions.includes('tabs'), false);
   assert.equal(permissions.includes('cookies'), false);
   assert.doesNotMatch(background, /chrome\.tabs\./);
-  assert.doesNotMatch(`${background}\n${content}`, /chrome\.cookies|document\.cookie/);
+  assert.doesNotMatch(`${background}\n${content}\n${pageData}`, /chrome\.cookies|document\.cookie/);
   assert.doesNotMatch(`${background}\n${content}`, /CAPTURE_NOTE_URL|NOTE_PAGE_DATA/);
 });
 

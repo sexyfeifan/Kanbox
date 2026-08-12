@@ -40,7 +40,7 @@
 
 于是「等有空再看」就变成了永远不看。
 
-这个 App 的思路很简单：**把你在意的那几条，抄一份到自己电脑上。** 正文、配图、图里的文字，一次性扒干净存下来。之后搜关键词就能命中，原帖删了也不影响你 —— 灰就吃不起来了。
+这个 App 的思路很简单：**把你在意的那几条，抄一份到自己电脑上。** 正文、配图、视频、图里的文字和视频文稿都存在本机。之后搜关键词就能命中，原帖删了也不影响你 —— 灰就吃不起来了。
 
 ## ✨ 能做什么
 
@@ -48,6 +48,7 @@
 |:--:|---|---|
 | 🖱️ | **拖拽导入** | 从小红书搜索页直接把笔记卡片拖进 App 画布，或在笔记详情页拖右下角按钮 |
 | 🔍 | **图片文字可搜** | 调用 macOS 原生 Vision 框架做本地 OCR，中英文都认，图里的干货变成可搜索文本 |
+| 🎬 | **视频文稿** | 视频保存到本机，使用 macOS 离线 Speech 分段转写完整语音 |
 | 🗂️ | **自动分类** | 按标题、正文、OCR 文本和标签打分，自动分到 9 个类目 |
 | 🖼️ | **配图本地化** | 图片下载到本机，原帖删除、限流、防盗链都不影响你已存的内容 |
 | 🤖 | **Agent 可读** | 内置 MCP server，Claude Code / Codex 可以直接搜你的本地笔记库当资料 |
@@ -60,8 +61,8 @@ flowchart LR
     A[小红书页面<br/>拖动笔记卡片] --> B[Chrome 扩展<br/>只取卡片已显示的<br/>链接和标题]
     B --> C[本地 Sidecar<br/>127.0.0.1:4318]
     C --> D[匿名解析<br/>credentials: omit<br/>读单篇公开页面]
-    D --> E[配图下载<br/>存到本机]
-    E --> F[macOS Vision<br/>本地 OCR]
+    D --> E[图片与视频<br/>存到本机]
+    E --> F[macOS Speech + Vision<br/>视频转写与图片 OCR]
     F --> G[规则分类<br/>9 个类目]
     G --> H[首页整理台<br/>卡片分组]
 ```
@@ -86,7 +87,7 @@ flowchart LR
 代码层面都可以核对：
 
 - 解析请求显式写着 `credentials: 'omit'` —— `scripts/lib/anonymous-note-resolver.mjs:186`
-- 图片下载同样不带凭证 —— `scripts/lib/media-import.mjs:44`
+- 图片和视频下载同样不带凭证 —— `scripts/lib/media-import.mjs`、`scripts/lib/video-import.mjs`
 - UA 是 `KanKanFavorites/0.1 anonymous-local-resolver`，**没有伪装成 Chrome**，平台一看就知道这是谁在请求
 - 没有代理池、没有重试退避、没有 UA 轮换 —— 这些爬虫标配一个都没有
 
@@ -124,9 +125,15 @@ flowchart LR
 
 ## 📦 安装
 
-> ⚠️ 目前是 **macOS 专用**。本地 OCR 依赖系统的 Vision 框架，封面缓存恢复也用了 macOS 路径。其他平台可以跑起来，但 OCR 会失效。
+> ⚠️ 目前是 **macOS 13+、Apple Silicon 专用**。本地 OCR 和视频文稿依赖系统的 Vision / Speech 框架。
 
-### 1. 装桌面 App
+### 推荐：下载 Release 安装包
+
+从 [GitHub Releases](https://github.com/feitangyuan/kankan-shoucang/releases/latest) 下载最新 DMG，把「看看收藏」拖进“应用程序”即可；安装包已包含运行环境，**不需要 Node.js、npm 或终端命令**。
+
+因为当前版本没有 Apple Developer 公证，首次打开如果被 macOS 拦截：先尝试打开一次，再前往 **系统设置 → 隐私与安全性 → 仍要打开**。只需操作一次。
+
+### 从源码构建
 
 ```bash
 git clone https://github.com/feitangyuan/kankan-shoucang.git
@@ -137,7 +144,7 @@ npm run tauri:build
 
 产物在 `src-tauri/target/release/bundle/`，装完打开「看看收藏」。
 
-### 2. 装 Chrome 扩展
+### 装 Chrome 扩展
 
 App 里点「浏览器插件」按钮会自动帮你打开 Chrome 扩展页和插件文件夹。或者手动：
 
@@ -147,7 +154,7 @@ App 里点「浏览器插件」按钮会自动帮你打开 Chrome 扩展页和�
 
 > Tauri 不能替你安装 Chrome 扩展，这一步只能手动。
 
-### 3. 开始用
+### 开始用
 
 打开小红书搜索页，**把笔记卡片拖进 App 窗口的任意位置**。画布会依次显示识别 → 匿名解析 → 保存图片和 OCR → 收录完成。
 
@@ -206,8 +213,8 @@ codex mcp add kankan-notes \
 
 ```
 ~/Library/Application Support/com.patrick.kankanshoucang/
-├── notes.json          # 所有笔记的正文、OCR、元数据
-├── media/<noteId>/     # 每条笔记的配图
+├── notes.json          # 所有笔记的正文、文稿、OCR、元数据
+├── media/<noteId>/     # 每条笔记的配图与视频
 └── settings.json
 ```
 
@@ -231,7 +238,7 @@ npm run tauri:dev
 验证：
 
 ```bash
-npm test      # 42 个 node:test 用例
+npm test
 npm run lint
 npm run build
 ```
@@ -245,8 +252,8 @@ npm run build
 | `GET` | `/health` | 健康检查，返回数据目录和 OCR 可用性 |
 | `GET` | `/notes` | 全部笔记 |
 | `POST` | `/notes/import` | 导入一条笔记 |
-| `DELETE` | `/notes/:id` | 删除笔记，连带删除本地配图 |
-| `GET` | `/media/:noteId/:file` | 读本地配图 |
+| `DELETE` | `/notes/:id` | 删除笔记，连带删除本地媒体 |
+| `GET` | `/media/:noteId/:file` | 读取本地图片或视频 |
 | `GET` | `/setup` | 扩展与 Agent 的安装状态 |
 | `POST` | `/setup/browser-extension/open` | 打开扩展配置页 |
 | `POST` | `/setup/agent/connect` | 注册 MCP server |
@@ -259,10 +266,12 @@ npm run build
 - **桌面** Tauri 2
 - **本地服务** Node.js sidecar（零依赖，只用标准库）
 - **OCR** macOS Vision 框架，经 JXA 调用，识别 `zh-Hans` / `zh-Hant` / `en-US`
+- **视频文稿** macOS Speech 强制设备端识别；不支持离线识别时不会回退到云端
 
 ## ⚠️ 已知限制
 
-- **仅 macOS**：OCR 依赖 Vision 框架
+- **仅 macOS**：OCR 和视频文稿依赖 Vision / Speech 框架
+- **离线转写兼容性**：只有系统报告支持中文设备端识别时才会生成视频文稿
 - **小红书改版会失效**：扩展的 DOM 选择器和页面状态解析规则依赖当前页面结构，改版后需要跟着更新
 - **匿名解析可能失败**：页面拒绝匿名访问时导入会报错。这是设计如此 —— 不会为了成功率去用你的登录态
 - **不支持批量**：一次一条，没有收藏夹同步。这也是故意的

@@ -122,6 +122,13 @@ function normalizeNote(note: Partial<Note>): Note {
     imageOcr: Array.isArray(note.imageOcr) ? note.imageOcr : [],
     mediaStatus: note.mediaStatus,
     mediaError: note.mediaError,
+    sourceVideoUrl: typeof note.sourceVideoUrl === 'string' ? note.sourceVideoUrl : '',
+    videoUrl: typeof note.videoUrl === 'string' ? note.videoUrl : '',
+    videoDuration: typeof note.videoDuration === 'number' ? note.videoDuration : 0,
+    transcriptText: typeof note.transcriptText === 'string' ? note.transcriptText : '',
+    transcriptSegments: Array.isArray(note.transcriptSegments) ? note.transcriptSegments : [],
+    videoStatus: note.videoStatus,
+    videoError: note.videoError,
     author: {
       name: note.author?.name || '未知作者',
       avatar: note.author?.avatar,
@@ -217,7 +224,7 @@ export async function importSharedNote(input: string): Promise<ImportNoteResult>
   }>('/notes/import', {
     method: 'POST',
     body: JSON.stringify({ input }),
-  }, 180_000);
+  }, 30 * 60_000);
 
   const response = normalizeRemoteNotes(payload);
   const notes = response.notes;

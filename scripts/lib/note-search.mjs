@@ -10,13 +10,18 @@ export function searchableNoteText(note, extraText = '') {
   const imageOcr = Array.isArray(note?.imageOcr)
     ? note.imageOcr.map((entry) => entry?.text || '')
     : [];
+  const transcriptSegments = Array.isArray(note?.transcriptSegments)
+    ? note.transcriptSegments.map((entry) => entry?.text || '')
+    : [];
 
   return normalizeSearchText([
     note?.title,
     note?.content,
     note?.rawContent,
     note?.ocrText,
+    note?.transcriptText,
     ...imageOcr,
+    ...transcriptSegments,
     note?.author?.name,
     note?.category,
     ...(Array.isArray(note?.tags) ? note.tags : []),

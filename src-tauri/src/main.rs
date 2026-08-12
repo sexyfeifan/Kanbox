@@ -37,13 +37,19 @@ fn resolve_local_api_script(app: &tauri::App) -> Result<PathBuf, String> {
     Err("local-api.mjs not found".to_string())
 }
 
-fn resolve_node_binary() -> String {
+fn resolve_node_binary(app: &tauri::App) -> String {
     if let Some(explicit) = std::env::var("LOCAL_API_NODE_BIN")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
         return explicit;
+    }
+
+    if let Ok(bundled) = app.path().resolve("kankan-node", BaseDirectory::Resource) {
+        if bundled.exists() {
+            return bundled.to_string_lossy().into_owned();
+        }
     }
 
     let candidates = [
@@ -78,7 +84,7 @@ fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
         .open(data_dir.join("local-api.stderr.log"))
         .map_err(|err| err.to_string())?;
 
-    let child = Command::new(resolve_node_binary())
+    let child = Command::new(resolve_node_binary(app))
         .arg(script_path)
         .env("LOCAL_API_PORT", LOCAL_API_PORT)
         .env("LOCAL_APP_DATA_DIR", &data_dir)

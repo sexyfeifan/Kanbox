@@ -14,6 +14,17 @@ export interface Note {
     text: string;
     error?: string;
   }>;
+  sourceVideoUrl?: string;
+  videoUrl?: string;
+  videoDuration?: number;
+  transcriptText?: string;
+  transcriptSegments?: Array<{
+    start: number;
+    duration: number;
+    text: string;
+  }>;
+  videoStatus?: 'pending' | 'ready' | 'partial' | 'none';
+  videoError?: string;
   mediaStatus?: 'pending' | 'ready' | 'partial' | 'none';
   mediaError?: string;
   author: {

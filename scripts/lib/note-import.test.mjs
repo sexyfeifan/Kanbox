@@ -56,6 +56,8 @@ test('normalizeImportedNote keeps visible page data only', () => {
     content: '正文内容',
     author: { name: '作者' },
     imageUrls: ['https://sns-webpic-qc.xhscdn.com/a.jpg'],
+    type: 'video',
+    videoUrl: 'https://sns-video-hw.xhscdn.com/a.mp4',
   });
 
   assert.equal(note.id, '64cb12340000000001020304');
@@ -64,6 +66,8 @@ test('normalizeImportedNote keeps visible page data only', () => {
   assert.equal(note.coverUrl, 'https://sns-webpic-qc.xhscdn.com/a.jpg');
   assert.deepEqual(note.sourceImageUrls, ['https://sns-webpic-qc.xhscdn.com/a.jpg']);
   assert.equal(note.mediaStatus, 'pending');
+  assert.equal(note.sourceVideoUrl, 'https://sns-video-hw.xhscdn.com/a.mp4');
+  assert.equal(note.videoStatus, 'pending');
 });
 
 test('noteFromSharedText rejects a bare link and accepts pasted content', () => {

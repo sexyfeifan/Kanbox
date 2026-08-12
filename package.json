@@ -1,17 +1,18 @@
 {
   "name": "kankan-shoucang",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "build:native": "node ./scripts/build-native.mjs",
     "start": "next start",
     "test": "node --test scripts/lib/*.test.mjs",
     "desktop:preview": "node ./scripts/desktop-preview.mjs",
-    "local-api": "node ./scripts/local-api.mjs",
-    "tauri:build": "tauri build",
-    "tauri:dev": "tauri dev",
+    "local-api": "npm run build:native && node ./scripts/local-api.mjs",
+    "tauri:build": "npm run build:native && tauri build",
+    "tauri:dev": "npm run build:native && tauri dev",
     "lint": "eslint app scripts next.config.ts"
   },
   "dependencies": {

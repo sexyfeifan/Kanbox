@@ -24,6 +24,14 @@ function buildHtml() {
               userId: 'author-id',
             },
             tagList: [{ name: '设计' }],
+            type: 'video',
+            video: {
+              media: {
+                stream: {
+                  h264: [{ masterUrl: 'http://sns-video-hw.xhscdn.com/video.mp4' }],
+                },
+              },
+            },
           },
         },
       },
@@ -61,6 +69,8 @@ test('anonymous resolver keeps the dragged token but never sends account credent
     'https://sns-webpic-qc.xhscdn.com/second.webp',
   ]);
   assert.deepEqual(note.tags, ['设计']);
+  assert.equal(note.type, 'video');
+  assert.equal(note.videoUrl, 'https://sns-video-hw.xhscdn.com/video.mp4');
 });
 
 test('anonymous resolver refuses to leave the Xiaohongshu page origin on redirect', async () => {

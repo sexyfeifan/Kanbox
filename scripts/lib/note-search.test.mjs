@@ -12,6 +12,7 @@ const note = {
   author: { name: 'Leo Hong' },
   category: '设计美学',
   tags: ['网页设计', '传统文化'],
+  transcriptText: '视频里讲了本地语音转写',
 };
 
 test('search covers body, image OCR, author, tags, and group names', () => {
@@ -20,10 +21,10 @@ test('search covers body, image OCR, author, tags, and group names', () => {
   assert.equal(noteMatchesQuery(note, 'leo hong'), true);
   assert.equal(noteMatchesQuery(note, '传统文化'), true);
   assert.equal(noteMatchesQuery(note, '客户灵感', '客户灵感'), true);
+  assert.equal(noteMatchesQuery(note, '本地语音转写'), true);
   assert.equal(noteMatchesQuery(note, '咖啡'), false);
 });
 
 test('filter returns all notes for an empty query', () => {
   assert.deepEqual(filterNotesByQuery([note], ''), [note]);
 });
-
