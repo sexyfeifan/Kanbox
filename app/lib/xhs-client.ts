@@ -320,6 +320,21 @@ export async function getDataInfo(): Promise<DataInfo> {
   return fetchLocalApi<DataInfo>('/data/info', undefined, 8000);
 }
 
+export async function checkDataIntegrity(): Promise<{
+  totalNotes: number;
+  healthyNotes: number;
+  brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }>;
+}> {
+  return fetchLocalApi('/data/integrity', undefined, 15000);
+}
+
+export async function repairNote(noteId: string): Promise<{ notes: Note[]; note: Note }> {
+  return fetchLocalApi(`/data/integrity/repair`, {
+    method: 'POST',
+    body: JSON.stringify({ noteId }),
+  }, 60000);
+}
+
 export function formatNumber(num: number): string {
   if (num >= 10000) return (num / 10000).toFixed(1) + 'w';
   if (num >= 1000) return (num / 1000).toFixed(1) + 'k';

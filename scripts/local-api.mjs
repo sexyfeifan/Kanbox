@@ -323,6 +323,62 @@ async function getDirectorySize(dirPath) {
   return totalSize;
 }
 
+async function checkDataIntegrity() {
+  const notes = await readNotes();
+  const brokenNotes = [];
+
+  for (const note of notes) {
+    const missingFiles = [];
+    const noteMediaDir = path.join(mediaDirectory, note.id);
+
+    if (Array.isArray(note.imageUrls)) {
+      for (const imageUrl of note.imageUrls) {
+        const match = imageUrl.match(/\/media\/[0-9a-f]{24}\/(.+)$/i);
+        if (match) {
+          const filePath = path.join(noteMediaDir, match[1]);
+          if (!existsSync(filePath)) missingFiles.push(match[1]);
+        }
+      }
+    }
+
+    if (note.type === 'video') {
+      const videoPath = path.join(noteMediaDir, 'video.mp4');
+      if (!existsSync(videoPath)) missingFiles.push('video.mp4');
+    }
+
+    if (missingFiles.length > 0) {
+      brokenNotes.push({ id: note.id, title: note.title || '未命名笔记', missingFiles });
+    }
+  }
+
+  return {
+    totalNotes: notes.length,
+    healthyNotes: notes.length - brokenNotes.length,
+    brokenNotes,
+  };
+}
+
+async function repairNoteIntegrity(noteId) {
+  const notes = await readNotes();
+  const noteIndex = notes.findIndex((note) => note.id === noteId);
+  if (noteIndex < 0) return null;
+
+  const note = notes[noteIndex];
+  const repaired = await localizeNoteMedia(note, {
+    mediaDirectory,
+    publicBaseUrl,
+  });
+
+  const updatedNotes = [...notes];
+  updatedNotes[noteIndex] = repaired;
+  await writeNotes(updatedNotes);
+
+  return {
+    notes: updatedNotes,
+    note: repaired,
+  };
+}
+
 async function buildNotesExport() {
   const notes = await readNotes();
   const exportDate = new Date().toISOString();
@@ -684,6 +740,25 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/data/info') {
       sendJson(request, response, 200, await buildDataInfo());
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/data/integrity') {
+      sendJson(request, response, 200, await checkDataIntegrity());
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/integrity/repair') {
+      const body = await readRequestBody(request);
+      if (!body.noteId || typeof body.noteId !== 'string') {
+        throw new Error('缺少 noteId 参数');
+      }
+      const result = await queueMutation(() => repairNoteIntegrity(body.noteId));
+      if (!result) {
+        sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
+        return;
+      }
+      sendJson(request, response, 200, result);
       return;
     }
 

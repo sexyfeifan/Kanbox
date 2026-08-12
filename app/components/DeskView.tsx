@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, type DragEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, type DragEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
@@ -59,6 +59,7 @@ import { stripDuplicateTagSuffix } from '../lib/note-content.mjs';
 import { filterNotesByQuery } from '../../scripts/lib/note-search.mjs';
 import {
   createDeskGroup,
+  deleteDeskGroup,
   ensureDeskState,
   getNotesInGroup,
   moveNoteToGroup,
@@ -66,7 +67,7 @@ import {
 } from '../lib/desk-workspace.mjs';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const TITLEBAR_SAFE_TOP = 34;
+const TITLEBAR_SAFE_TOP = 52;
 const TITLEBAR_SAFE_LEFT = 12;
 const DRAG_PAYLOAD_PREFIX = 'KANBOX_NOTE:';
 
@@ -109,6 +110,13 @@ const CAT_COLORS: Record<string, string> = {
   生活方式: '#8BA882',
 };
 const catColor = (c: string) => CAT_COLORS[c] ?? '#829987';
+
+function isNewNote(savedAt: Date | string): boolean {
+  const date = savedAt instanceof Date ? savedAt : new Date(savedAt);
+  const now = new Date();
+  const hoursDiff = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+  return hoursDiff < 24;
+}
 
 // ── Seeded random ─────────────────────────────────────────────────────────────
 function sr(seed: number): number {
@@ -268,6 +276,7 @@ function ExpandedCard({
   const [tagDraft, setTagDraft] = useState('');
   const [addingTag, setAddingTag] = useState(false);
   const [newTagDraft, setNewTagDraft] = useState('');
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -317,6 +326,21 @@ function ExpandedCard({
       return next;
     });
   };
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        setLightboxIndex(i => (i !== null ? (i - 1 + imageUrls.length) % imageUrls.length : null));
+      } else if (e.key === 'ArrowRight') {
+        setLightboxIndex(i => (i !== null ? (i + 1) % imageUrls.length : null));
+      } else if (e.key === 'Escape') {
+        setLightboxIndex(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightboxIndex, imageUrls.length]);
 
   return (
     <motion.div
@@ -434,9 +458,11 @@ function ExpandedCard({
                 src={activeImageUrl}
                 alt={note.title}
                 draggable={false}
+                onClick={() => setLightboxIndex(resolvedImageIndex)}
                 style={{
                   width: '100%', height: '100%', objectFit: 'contain', display: 'block',
                   filter: 'saturate(0.9) contrast(1.02)',
+                  cursor: 'zoom-in',
                 }}
                 onError={() => markImageFailed(activeImageUrl)}
               />
@@ -569,6 +595,26 @@ function ExpandedCard({
             <span>@{note.author.name}</span>
             <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#C7C2BA' }} />
             <span>{formatDate(note.savedAt)}</span>
+            {note.sourceUrl && (
+              <a
+                href={note.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  color: '#8D8881', fontSize: 11, textDecoration: 'none',
+                  padding: '4px 8px', borderRadius: 6,
+                  border: '1px solid rgba(0,0,0,0.06)',
+                  transition: 'background 0.12s',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.04)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+              >
+                <ExternalLink size={11} />
+                查看原帖
+              </a>
+            )}
           </div>
 
           {note.type === 'video' ? (
@@ -866,13 +912,49 @@ function ExpandedCard({
           </div>
         </div>
       </motion.div>
+      {lightboxIndex !== null && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setLightboxIndex(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 400,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={imageUrls[lightboxIndex]}
+            alt=""
+            style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain' }}
+          />
+          <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
+            style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <X size={20} />
+          </button>
+          {imageUrls.length > 1 && (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); setLightboxIndex((lightboxIndex - 1 + imageUrls.length) % imageUrls.length); }}
+                style={{ position: 'absolute', left: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: 44, height: 44, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ChevronLeft size={24} />
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); setLightboxIndex((lightboxIndex + 1) % imageUrls.length); }}
+                style={{ position: 'absolute', right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: 44, height: 44, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ChevronRight size={24} />
+              </button>
+            </>
+          )}
+        </motion.div>
+      )}
     </motion.div>
   );
 }
 
 // ── Individual card with breathe animation ────────────────────────────────────
 function DeskCard({
-  note, pos, isDimmed, lightweight, onClick, onDragStart, onDragEnd
+  note, pos, isDimmed, lightweight, onClick, onDragStart, onDragEnd, batchMode, isSelected, onToggleSelect
 }: {
   note: Note;
   pos: Pos;
@@ -881,6 +963,9 @@ function DeskCard({
   onClick: () => void;
   onDragStart?: (noteId: string) => void;
   onDragEnd?: () => void;
+  batchMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const color = catColor(note.category);
 
@@ -898,18 +983,19 @@ function DeskCard({
       transition={{ type: 'spring', stiffness: 220, damping: 24, mass: 0.8 }}
       whileHover={isDimmed ? undefined : { scale: 1.06, zIndex: pos.z + 100, transition: { duration: 0.15 } }}
       whileTap={isDimmed ? undefined : { scale: 0.96 }}
-      onClick={isDimmed ? undefined : onClick}
+      onClick={isDimmed ? undefined : (batchMode ? onToggleSelect : onClick)}
       style={{
         position: 'absolute',
         width: CARD_W,
         left: -CARD_W / 2,
         top: -CARD_H / 2,
-        cursor: isDimmed ? 'default' : 'grab',
+        cursor: isDimmed ? 'default' : (batchMode ? 'pointer' : 'grab'),
         pointerEvents: isDimmed ? 'none' : 'auto',
         transformOrigin: 'center center',
         willChange: 'transform, opacity',
       }}
-      draggable={!isDimmed}
+      draggable={!isDimmed && !batchMode}
+      title={note.title}
       onDragStart={() => onDragStart?.(note.id)}
       onDragEnd={() => onDragEnd?.()}
     >
@@ -977,6 +1063,26 @@ function DeskCard({
               }}>
                 <Play size={10} fill="currentColor" strokeWidth={1.5} style={{ marginLeft: 1 }} />
               </span>
+            )}
+            {batchMode && (
+              <div style={{
+                position: 'absolute', top: 7, left: 7,
+                width: 22, height: 22, borderRadius: 6,
+                background: isSelected ? '#829987' : 'rgba(253,252,250,0.92)',
+                border: isSelected ? 'none' : '2px solid rgba(0,0,0,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}>
+                {isSelected && <Check size={14} strokeWidth={2.5} color="#fff" />}
+              </div>
+            )}
+            {isNewNote(note.savedAt) && !note.type && (
+              <span style={{
+                position: 'absolute', top: 7, left: 7,
+                width: 8, height: 8, borderRadius: '50%',
+                background: '#829987',
+                boxShadow: '0 0 0 2px rgba(130,153,135,0.3)',
+              }} />
             )}
           </div>
 
@@ -1177,6 +1283,7 @@ export function DeskView() {
   const { notes, setNotes } = useNotes();
   const { state, dispatch } = useApp();
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [deskState, setDeskState] = useState<DeskState>({ groups: [], noteGroupMap: {}, knownNoteIds: [] });
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -1200,6 +1307,40 @@ export function DeskView() {
   const [pasteUrl, setPasteUrl] = useState('');
   const [showPasteInput, setShowPasteInput] = useState(false);
   const [pasteLoading, setPasteLoading] = useState(false);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+
+  const toggleBatchMode = () => {
+    setBatchMode(prev => !prev);
+    if (batchMode) setSelectedNoteIds(new Set());
+  };
+
+  const toggleNoteSelection = (noteId: string) => {
+    setSelectedNoteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(noteId)) next.delete(noteId);
+      else next.add(noteId);
+      return next;
+    });
+  };
+
+  const sortNotes = useCallback((notesToSort: Note[]) => {
+    const sorted = [...notesToSort];
+    switch (sortBy) {
+      case 'oldest':
+        sorted.sort((a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime());
+        break;
+      case 'title':
+        sorted.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+        break;
+      case 'newest':
+      default:
+        sorted.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+        break;
+    }
+    return sorted;
+  }, [sortBy]);
 
   const loadLocalStatus = async () => {
     setServiceHealth(await getLocalServiceHealth());
@@ -1276,6 +1417,54 @@ export function DeskView() {
     };
   }, []);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      if (isMod && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (isMod && e.key === 'n') {
+        e.preventDefault();
+        handleCreateGroup();
+        return;
+      }
+
+      if (isMod && e.key === 'e') {
+        e.preventDefault();
+        void handleExport();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (expanded) {
+          setExpanded(null);
+          return;
+        }
+        if (showPasteInput) {
+          setShowPasteInput(false);
+          setPasteUrl('');
+          return;
+        }
+        if (setupPanel) {
+          setSetupPanel(null);
+          return;
+        }
+        if (searchQuery) {
+          setSearchQuery('');
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1319,10 +1508,10 @@ export function DeskView() {
         searchQuery,
         (note: Note) => groupNameById.get(deskState.noteGroupMap?.[note.id] || 'inbox') || '',
       ) as Note[];
-      if (!categoryFilter) return filtered;
-      return filtered.filter((note) => note.category === categoryFilter);
+      const afterCategory = categoryFilter ? filtered.filter((note) => note.category === categoryFilter) : filtered;
+      return sortNotes(afterCategory);
     },
-    [notes, searchQuery, categoryFilter, groupNameById, deskState.noteGroupMap],
+    [notes, searchQuery, categoryFilter, groupNameById, deskState.noteGroupMap, sortNotes],
   );
   const hasActiveSearch = searchQuery.trim().length > 0 || categoryFilter !== null;
   const org = useMemo(
@@ -1461,6 +1650,13 @@ export function DeskView() {
     setDeskState((prev) => renameDeskGroup(prev, editingGroupId, editingGroupName) as DeskState);
     setEditingGroupId(null);
     setEditingGroupName('');
+  };
+
+  const handleDeleteGroup = (groupId: string) => {
+    setDeskState((prev) => deleteDeskGroup(prev, groupId) as DeskState);
+    if (activeCategory === groupId) {
+      setActiveCategory(null);
+    }
   };
 
   const handleMoveNoteToGroup = (noteId: string, groupId: string) => {
@@ -1722,6 +1918,7 @@ export function DeskView() {
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(0,0,0,0.04)',
+        WebkitAppRegion: 'drag' as any,
       }}>
         <div style={{ width: 190, flexShrink: 0 }}>
           <h1 style={{
@@ -1742,6 +1939,7 @@ export function DeskView() {
         }}>
           <Search size={14} strokeWidth={1.8} style={{ position: 'absolute', left: 13, color: '#8F8A82', pointerEvents: 'none' }} />
           <input
+            ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => {
               setSearchQuery(event.target.value);
@@ -1757,9 +1955,35 @@ export function DeskView() {
               borderRadius: 13, border: '1px solid rgba(73,56,28,0.07)',
               background: 'rgba(253,252,250,0.58)',
               color: '#454248', fontSize: 12,
+              WebkitAppRegion: 'no-drag' as any,
             }}
           />
         </div>
+
+        <div style={{ display: 'flex', gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
+          {([['newest', '最新'], ['oldest', '最早'], ['title', '标题']] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setSortBy(key)}
+              style={{
+                padding: '0 8px', height: 28, border: 'none', fontSize: 10, cursor: 'pointer',
+                background: sortBy === key ? 'rgba(130,153,135,0.12)' : 'transparent',
+                color: sortBy === key ? '#4F6254' : '#9A958D',
+                fontWeight: sortBy === key ? 600 : 400,
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button onClick={toggleBatchMode}
+          style={{
+            padding: '0 8px', height: 28, borderRadius: 8, border: batchMode ? '1px solid rgba(130,153,135,0.4)' : '1px solid rgba(73,56,28,0.07)',
+            fontSize: 10, cursor: 'pointer',
+            background: batchMode ? 'rgba(130,153,135,0.12)' : 'transparent',
+            color: batchMode ? '#4F6254' : '#9A958D',
+            fontWeight: batchMode ? 600 : 400,
+          }}>
+          多选
+        </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {([
@@ -1778,6 +2002,7 @@ export function DeskView() {
                 display: 'flex', alignItems: 'center', gap: 6,
                 fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
                 boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+                WebkitAppRegion: 'no-drag' as any,
               }}
             >
               <Icon size={14} strokeWidth={1.8} />
@@ -1795,6 +2020,7 @@ export function DeskView() {
               display: 'flex', alignItems: 'center', gap: 6,
               fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
               boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+              WebkitAppRegion: 'no-drag' as any,
             }}
           >
             <Download size={14} strokeWidth={1.8} />
@@ -2156,6 +2382,34 @@ export function DeskView() {
                         >
                           <Pencil size={14} strokeWidth={1.8} />
                         </motion.button>
+                        {kind === 'custom' && (
+                          <motion.button
+                            initial={{ opacity: 0, scale: 0.8, x: -10 }}
+                            animate={{ opacity: 1, scale: 1, x: 0 }}
+                            exit={{ opacity: 0, scale: 0.8, x: -10 }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteGroup(groupId);
+                            }}
+                            style={{
+                              background: 'rgba(253,252,250,0.94)',
+                              color: '#B56A5B',
+                              border: '1px solid rgba(181,106,91,0.18)',
+                              borderRadius: 20,
+                              width: 34,
+                              height: 34,
+                              cursor: 'pointer',
+                              boxShadow: '0 4px 12px rgba(73,56,28,0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            <Trash2 size={14} strokeWidth={1.8} />
+                          </motion.button>
+                        )}
                       </>
                     )}
                   </AnimatePresence>

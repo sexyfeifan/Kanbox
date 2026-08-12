@@ -141,3 +141,20 @@ export function moveNoteToGroup(state, noteId, groupId) {
 export function getNotesInGroup(notes, noteGroupMap, groupId) {
   return (Array.isArray(notes) ? notes : []).filter((note) => (noteGroupMap?.[note.id] || 'inbox') === groupId);
 }
+
+export function deleteDeskGroup(state, groupId) {
+  if (groupId === 'inbox' || String(groupId).startsWith('auto:')) {
+    return state;
+  }
+
+  const groups = (state.groups || []).filter((group) => group.id !== groupId);
+  const noteGroupMap = { ...(state.noteGroupMap || {}) };
+
+  for (const noteId of Object.keys(noteGroupMap)) {
+    if (noteGroupMap[noteId] === groupId) {
+      noteGroupMap[noteId] = 'inbox';
+    }
+  }
+
+  return { ...state, groups, noteGroupMap };
+}

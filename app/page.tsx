@@ -30,7 +30,7 @@ export default function Home() {
     };
 
     void load(true);
-    const intervalId = window.setInterval(() => void load(), 2000);
+    const intervalId = window.setInterval(() => void load(), 10000);
 
     return () => {
       cancelled = true;
