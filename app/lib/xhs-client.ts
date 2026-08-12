@@ -1,5 +1,5 @@
 import { Note } from '../types/xiaohongshu';
-import { inferCategoryFromNote } from './category-inference.mjs';
+import { inferCategoryFromNote } from '../../scripts/lib/category-inference.mjs';
 
 type RawNote = Omit<Partial<Note>, 'savedAt' | 'type' | 'imageAspect'> & {
   savedAt?: unknown;
@@ -42,6 +42,11 @@ export type ImportNoteResult = {
   notes: Note[];
   note: Note;
   created: boolean;
+};
+
+export type UpdateNoteResult = {
+  notes: Note[];
+  note: Note;
 };
 
 export type DeleteNoteResult = {
@@ -92,10 +97,6 @@ async function fetchLocalApi<T>(path: string, init?: RequestInit, timeoutMs: num
   }
 }
 
-function inferCategory(note: Partial<Note>): string {
-  return inferCategoryFromNote(note);
-}
-
 function toDate(value: unknown): Date {
   if (value instanceof Date) return value;
   if (typeof value === 'string' || typeof value === 'number') {
@@ -106,11 +107,10 @@ function toDate(value: unknown): Date {
 }
 
 function normalizeNote(note: Partial<Note>): Note {
-  const normalizedCategory = inferCategory(note);
+  const normalizedCategory = inferCategoryFromNote(note);
 
   return {
-    id: note.id || `${Date.now()}-${Math.random()}`,
-    xsecToken: note.xsecToken,
+    id: typeof note.id === 'string' && /^[0-9a-f]{24}$/i.test(note.id) ? note.id : '',
     sourceUrl: note.sourceUrl,
     title: note.title || '未命名笔记',
     content: note.content || '',
@@ -148,7 +148,7 @@ function normalizeNote(note: Partial<Note>): Note {
 function normalizeRemoteNotes(payload: RemoteNotesPayload): NotesResponse {
   if (Array.isArray(payload)) {
     return {
-      notes: payload.map((note) => normalizeNote(note as Partial<Note>)),
+      notes: payload.map((note) => normalizeNote(note as Partial<Note>)).filter((note) => note.id !== ''),
       lastImportedAt: null,
       source: 'sidecar',
     };
@@ -156,7 +156,7 @@ function normalizeRemoteNotes(payload: RemoteNotesPayload): NotesResponse {
 
   return {
     notes: Array.isArray(payload.notes)
-      ? payload.notes.map((note) => normalizeNote(note as Partial<Note>))
+      ? payload.notes.map((note) => normalizeNote(note as Partial<Note>)).filter((note) => note.id !== '')
       : [],
     lastImportedAt: typeof payload.lastImportedAt === 'string' ? payload.lastImportedAt : null,
     source: 'sidecar',
@@ -241,6 +241,27 @@ export async function importSharedNote(input: string): Promise<ImportNoteResult>
   };
 }
 
+export async function updateNote(noteId: string, updates: { title?: string; tags?: string[] }): Promise<UpdateNoteResult> {
+  const payload = await fetchLocalApi<{
+    notes?: RawNote[];
+    note?: RawNote;
+    lastImportedAt?: unknown;
+  }>(`/notes/${encodeURIComponent(noteId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+
+  const response = normalizeRemoteNotes(payload);
+  const notes = response.notes;
+  const updatedId = typeof payload.note?.id === 'string' ? payload.note.id : '';
+  const note = notes.find((entry) => entry.id === updatedId);
+  if (!note) {
+    throw new Error('笔记更新失败');
+  }
+
+  return { notes, note };
+}
+
 export async function deleteStoredNote(noteId: string): Promise<DeleteNoteResult> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];
@@ -255,6 +276,48 @@ export async function deleteStoredNote(noteId: string): Promise<DeleteNoteResult
     notes: response.notes,
     deletedId: typeof payload.deletedId === 'string' ? payload.deletedId : noteId,
   };
+}
+
+export type DataInfo = {
+  dataDirectory: string;
+  notesCount: number;
+  mediaSize: number;
+};
+
+export async function exportNotes(): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch(`${LOCAL_API_BASE_URL}/notes/export`, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const errorPayload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+      const message = typeof errorPayload?.error === 'string'
+        ? errorPayload.error
+        : `Export failed: ${response.status}`;
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('Content-Disposition') || '';
+    const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/);
+    const filename = filenameMatch?.[1] || 'kanbox-export.json';
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getDataInfo(): Promise<DataInfo> {
+  return fetchLocalApi<DataInfo>('/data/info', undefined, 8000);
 }
 
 export function formatNumber(num: number): string {

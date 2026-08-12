@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,15 +24,15 @@ import {
 } from './lib/note-import.mjs';
 
 const DEFAULT_PORT = 4318;
-const MCP_SERVER_NAME = 'kankan-notes';
+const MCP_SERVER_NAME = 'kanbox-notes';
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number.parseInt(process.env.LOCAL_API_PORT || `${DEFAULT_PORT}`, 10);
 const defaultDataDirectory = process.platform === 'darwin'
-  ? path.join(os.homedir(), 'Library', 'Application Support', 'com.patrick.kankanshoucang')
-  : path.join(os.homedir(), '.kan-kan-shou-cang');
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'com.kanbox.app')
+  : path.join(os.homedir(), '.kanbox');
 const dataDirectory = process.env.LOCAL_APP_DATA_DIR || defaultDataDirectory;
-const legacyDataDirectory = path.join(os.homedir(), '.kan-kan-shou-cang');
+const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
 const legacyNotesFilePath = path.join(legacyDataDirectory, 'notes.json');
 const notesTempFilePath = path.join(dataDirectory, 'notes.next.json');
@@ -40,8 +40,8 @@ const mediaDirectory = path.join(dataDirectory, 'media');
 const publicBaseUrl = `http://127.0.0.1:${PORT}`;
 const coverCacheDirectories = process.platform === 'darwin'
   ? [
-      path.join(os.homedir(), 'Library', 'Caches', 'com.patrick.kankanshoucang', 'WebKit', 'NetworkCache'),
-      path.join(os.homedir(), 'Library', 'Caches', 'kan-kan-shou-cang', 'WebKit', 'NetworkCache'),
+      path.join(os.homedir(), 'Library', 'Caches', 'com.kanbox.app', 'WebKit', 'NetworkCache'),
+      path.join(os.homedir(), 'Library', 'Caches', 'kanbox', 'WebKit', 'NetworkCache'),
     ]
   : [];
 let mutationQueue = Promise.resolve();
@@ -61,8 +61,8 @@ function resolveExtensionDirectory() {
 
 function resolveMcpServerPath() {
   return firstExistingPath([
-    path.resolve(scriptDirectory, 'kankan-mcp.mjs'),
-    path.resolve(scriptDirectory, '../scripts/kankan-mcp.mjs'),
+    path.resolve(scriptDirectory, 'kanbox-mcp.mjs'),
+    path.resolve(scriptDirectory, '../scripts/kanbox-mcp.mjs'),
   ]);
 }
 
@@ -205,7 +205,7 @@ function applyCorsHeaders(request, response) {
     response.setHeader('Access-Control-Allow-Origin', origin);
     response.setHeader('Vary', 'Origin');
   }
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   response.setHeader('Access-Control-Allow-Private-Network', 'true');
 }
@@ -299,6 +299,51 @@ function getLastImportedAt(notes) {
   return new Date(Math.max(...timestamps)).toISOString();
 }
 
+async function getDirectorySize(dirPath) {
+  if (!existsSync(dirPath)) return 0;
+  let totalSize = 0;
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        totalSize += await getDirectorySize(entryPath);
+      } else if (entry.isFile()) {
+        try {
+          const fileStat = await stat(entryPath);
+          totalSize += fileStat.size;
+        } catch {
+          // Skip files that can't be stat'd
+        }
+      }
+    }
+  } catch {
+    // Return 0 if directory can't be read
+  }
+  return totalSize;
+}
+
+async function buildNotesExport() {
+  const notes = await readNotes();
+  const exportDate = new Date().toISOString();
+  return {
+    exportDate,
+    version: '1.0',
+    noteCount: notes.length,
+    notes,
+  };
+}
+
+async function buildDataInfo() {
+  const notes = await readNotes();
+  const mediaSize = await getDirectorySize(mediaDirectory);
+  return {
+    dataDirectory,
+    notesCount: notes.length,
+    mediaSize,
+  };
+}
+
 async function buildNotesResponse() {
   const notes = await readNotes();
   return {
@@ -382,6 +427,38 @@ async function deleteNote(noteId) {
     deletedId: noteId,
     lastImportedAt: getLastImportedAt(removed.notes),
   };
+}
+
+async function updateNote(noteId, updates = {}) {
+  const existingNotes = await readNotes();
+  const noteIndex = existingNotes.findIndex((note) => note.id === noteId);
+  if (noteIndex < 0) return null;
+
+  const note = existingNotes[noteIndex];
+  const updated = { ...note };
+
+  if (typeof updates.title === 'string') {
+    updated.title = updates.title;
+  }
+  if (Array.isArray(updates.tags)) {
+    updated.tags = updates.tags;
+  }
+
+  updated.category = inferCategoryFromNote(updated);
+
+  const updatedNotes = [...existingNotes];
+  updatedNotes[noteIndex] = updated;
+  await writeNotes(updatedNotes);
+
+  return {
+    notes: updatedNotes,
+    note: updated,
+    lastImportedAt: getLastImportedAt(updatedNotes),
+  };
+}
+
+function queueNoteUpdate(noteId, updates) {
+  return queueMutation(() => updateNote(noteId, updates));
 }
 
 function queueMutation(callback) {
@@ -569,6 +646,17 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    const updateNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})$/i);
+    if (request.method === 'PATCH' && updateNoteMatch) {
+      const result = await queueNoteUpdate(updateNoteMatch[1].toLowerCase(), await readRequestBody(request));
+      if (!result) {
+        sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
+        return;
+      }
+      sendJson(request, response, 200, result);
+      return;
+    }
+
     const deleteNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})$/i);
     if (request.method === 'DELETE' && deleteNoteMatch) {
       const result = await queueNoteDelete(deleteNoteMatch[1].toLowerCase());
@@ -577,6 +665,25 @@ const server = createServer(async (request, response) => {
         return;
       }
       sendJson(request, response, 200, result);
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/notes/export') {
+      const exportData = await buildNotesExport();
+      const dateSlug = exportData.exportDate.slice(0, 10);
+      const payload = JSON.stringify(exportData, null, 2);
+      applyCorsHeaders(request, response);
+      response.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="kanbox-export-${dateSlug}.json"`,
+        'Content-Length': Buffer.byteLength(payload),
+      });
+      response.end(payload);
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/data/info') {
+      sendJson(request, response, 200, await buildDataInfo());
       return;
     }
 

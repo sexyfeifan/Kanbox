@@ -18,7 +18,7 @@ test('video URL allowlist accepts Xiaohongshu CDN only', () => {
 });
 
 test('localizeNoteVideo stores video and offline analysis text without credentials', async () => {
-  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kankan-video-test-'));
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-test-'));
   const sourceVideoUrl = 'https://sns-video-hw.xhscdn.com/a.mp4';
   let downloadInit;
   try {
@@ -60,7 +60,7 @@ test('localizeNoteVideo stores video and offline analysis text without credentia
 });
 
 test('localizeNoteVideo keeps a saved video when transcription is unavailable', async () => {
-  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kankan-video-test-'));
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-test-'));
   try {
     const note = await localizeNoteVideo({
       id: '64cb12340000000001020304',
@@ -85,7 +85,7 @@ test('localizeNoteVideo keeps a saved video when transcription is unavailable', 
 });
 
 test('reanalyzeStoredNoteVideo reuses the local video and removes legacy frame OCR', async () => {
-  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kankan-video-test-'));
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-test-'));
   const noteId = '64cb12340000000001020304';
   try {
     await mkdir(path.join(mediaDirectory, noteId), { recursive: true });

@@ -55,7 +55,7 @@ func extractAudioChunks(videoURL: URL, duration: Double) -> ([AudioChunk], Strin
             return (chunks, "系统无法读取视频音轨")
         }
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("kankan-\(UUID().uuidString).m4a")
+            .appendingPathComponent("kanbox-\(UUID().uuidString).m4a")
         exporter.outputURL = outputURL
         exporter.outputFileType = .m4a
         exporter.shouldOptimizeForNetworkUse = false

@@ -1,8 +1,8 @@
 [package]
-name = "kan-kan-shou-cang"
-version = "0.2.0"
-description = "Local desktop shell for 看看收藏"
-authors = ["Patrick"]
+name = "kanbox"
+version = "0.0.1"
+description = "Local desktop shell for Kanbox"
+authors = ["sexyfeifan"]
 edition = "2021"
 
 [build-dependencies]

@@ -46,7 +46,7 @@ fn resolve_node_binary(app: &tauri::App) -> String {
         return explicit;
     }
 
-    if let Ok(bundled) = app.path().resolve("kankan-node", BaseDirectory::Resource) {
+    if let Ok(bundled) = app.path().resolve("kanbox-node", BaseDirectory::Resource) {
         if bundled.exists() {
             return bundled.to_string_lossy().into_owned();
         }

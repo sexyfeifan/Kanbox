@@ -46,7 +46,7 @@ async function fetchImageResponse(url, fetchImpl, redirectCount = 0) {
     headers: {
       Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
       Referer: 'https://www.xiaohongshu.com/',
-      'User-Agent': 'KanKanFavorites/0.1 local-media-import',
+      'User-Agent': 'KanboxFavorites/0.1 local-media-import',
     },
   });
 

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src=".github/assets/icon.png" width="120" alt="看看收藏" />
+<img src=".github/assets/icon.png" width="120" alt="Kanbox" />
 
-# 看看收藏
+# Kanbox
 
 **专治收藏夹吃灰 —— 让存过的小红书笔记，这次真的找得回来。**
 
@@ -47,11 +47,15 @@
 | | 功能 | 说明 |
 |:--:|---|---|
 | 🖱️ | **拖拽导入** | 从小红书搜索页直接把笔记卡片拖进 App 画布，或在笔记详情页拖右下角按钮 |
+| 📋 | **粘贴链接导入** | 直接粘贴小红书笔记 URL，无需打开小红书页面 |
 | 🔍 | **图片文字可搜** | 调用 macOS 原生 Vision 框架做本地 OCR，中英文都认，图里的干货变成可搜索文本 |
 | 🎬 | **视频文稿** | 视频保存到本机，使用 macOS 离线 Speech 分段转写完整语音 |
 | 🗂️ | **自动分类** | 按标题、正文、OCR 文本和标签打分，自动分到 9 个类目 |
 | 🖼️ | **配图本地化** | 图片下载到本机，原帖删除、限流、防盗链都不影响你已存的内容 |
 | 🤖 | **Agent 可读** | 内置 MCP server，Claude Code / Codex 可以直接搜你的本地笔记库当资料 |
+| 📝 | **笔记编辑** | 修改标题、标签，修正 OCR 错误 |
+| 💾 | **数据导出** | 一键导出全部笔记为 JSON 备份文件 |
+| 🏷️ | **分类筛选** | 按类目快速筛选，结合关键词搜索 |
 | 🛡️ | **封控风险低** | 不是爬虫，不用你的登录态发请求。不读 Cookie、不登录、不批量、不做后台抓取 |
 
 ## 🔄 工作原理
@@ -75,7 +79,7 @@ flowchart LR
 
 这个项目走的是另一条路：
 
-| | 爬虫工具 | 看看收藏 |
+| | 爬虫工具 | Kanbox |
 |---|---|---|
 | 身份 | 用你的账号登录态发请求 | **匿名请求，不带 Cookie** |
 | 频率 | 批量、定时、自动翻页 | **一次一条，你手动拖才触发** |
@@ -88,7 +92,7 @@ flowchart LR
 
 - 解析请求显式写着 `credentials: 'omit'` —— `scripts/lib/anonymous-note-resolver.mjs:186`
 - 图片和视频下载同样不带凭证 —— `scripts/lib/media-import.mjs`、`scripts/lib/video-import.mjs`
-- UA 是 `KanKanFavorites/0.1 anonymous-local-resolver`，**没有伪装成 Chrome**，平台一看就知道这是谁在请求
+- UA 是 `KanboxFavorites/0.1 anonymous-local-resolver`，**没有伪装成 Chrome**，平台一看就知道这是谁在请求
 - 没有代理池、没有重试退避、没有 UA 轮换 —— 这些爬虫标配一个都没有
 
 **匿名解析失败时直接抛错，不会回退到你登录着的浏览器** —— 宁可这一条导不进来，也不动你的账号。
@@ -129,20 +133,20 @@ flowchart LR
 
 ### 推荐：下载 Release 安装包
 
-从 [GitHub Releases](https://github.com/feitangyuan/kankan-shoucang/releases/latest) 下载最新 DMG，把「看看收藏」拖进“应用程序”即可；安装包已包含运行环境，**不需要 Node.js、npm 或终端命令**。
+从 [GitHub Releases](https://github.com/sexyfeifan/Kanbox/releases/latest) 下载最新 DMG，把「Kanbox」拖进”应用程序”即可；安装包已包含运行环境，**不需要 Node.js、npm 或终端命令**。
 
 因为当前版本没有 Apple Developer 公证，首次打开如果被 macOS 拦截：先尝试打开一次，再前往 **系统设置 → 隐私与安全性 → 仍要打开**。只需操作一次。
 
 ### 从源码构建
 
 ```bash
-git clone https://github.com/feitangyuan/kankan-shoucang.git
-cd kankan-shoucang
+git clone https://github.com/sexyfeifan/Kanbox.git
+cd Kanbox
 npm install
 npm run tauri:build
 ```
 
-产物在 `src-tauri/target/release/bundle/`，装完打开「看看收藏」。
+产物在 `src-tauri/target/release/bundle/`，装完打开「Kanbox」。
 
 ### 装 Chrome 扩展
 
@@ -164,20 +168,20 @@ App 里点「浏览器插件」按钮会自动帮你打开 Chrome 扩展页和�
 
 这是我自己最常用的功能：**让 AI 直接查我的收藏当资料**。
 
-App 里点「连接 Agent」，选 Claude Code 或 Codex，它会自动注册一个叫 `kankan-notes` 的 MCP server。之后重开一个会话就能用了。
+App 里点「连接 Agent」，选 Claude Code 或 Codex，它会自动注册一个叫 `kanbox-notes` 的 MCP server。之后重开一个会话就能用了。
 
 手动配置的话：
 
 ```bash
 # Claude Code
-claude mcp add --scope user kankan-notes \
-  -e "LOCAL_APP_DATA_DIR=$HOME/Library/Application Support/com.patrick.kankanshoucang" \
-  -- node /path/to/scripts/kankan-mcp.mjs
+claude mcp add --scope user kanbox-notes \
+  -e "LOCAL_APP_DATA_DIR=$HOME/Library/Application Support/com.kanbox.app" \
+  -- node /path/to/scripts/kanbox-mcp.mjs
 
 # Codex
-codex mcp add kankan-notes \
-  --env "LOCAL_APP_DATA_DIR=$HOME/Library/Application Support/com.patrick.kankanshoucang" \
-  -- node /path/to/scripts/kankan-mcp.mjs
+codex mcp add kanbox-notes \
+  --env "LOCAL_APP_DATA_DIR=$HOME/Library/Application Support/com.kanbox.app" \
+  -- node /path/to/scripts/kanbox-mcp.mjs
 ```
 
 提供两个**只读**工具：
@@ -212,7 +216,7 @@ codex mcp add kankan-notes \
 ## 💾 数据存在哪
 
 ```
-~/Library/Application Support/com.patrick.kankanshoucang/
+~/Library/Application Support/com.kanbox.app/
 ├── notes.json          # 所有笔记的正文、文稿、OCR、元数据
 ├── media/<noteId>/     # 每条笔记的配图与视频
 └── settings.json
@@ -252,8 +256,11 @@ npm run build
 | `GET` | `/health` | 健康检查，返回数据目录和 OCR 可用性 |
 | `GET` | `/notes` | 全部笔记 |
 | `POST` | `/notes/import` | 导入一条笔记 |
+| `PATCH` | `/notes/:id` | 更新笔记标题和标签 |
 | `DELETE` | `/notes/:id` | 删除笔记，连带删除本地媒体 |
+| `GET` | `/notes/export` | 导出全部笔记为 JSON 备份文件 |
 | `GET` | `/media/:noteId/:file` | 读取本地图片或视频 |
+| `GET` | `/data/info` | 数据目录统计信息 |
 | `GET` | `/setup` | 扩展与 Agent 的安装状态 |
 | `POST` | `/setup/browser-extension/open` | 打开扩展配置页 |
 | `POST` | `/setup/agent/connect` | 注册 MCP server |

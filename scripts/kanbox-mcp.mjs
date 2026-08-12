@@ -7,14 +7,14 @@ import path from 'node:path';
 
 import { noteMatchesQuery } from './lib/note-search.mjs';
 
-const SERVER_NAME = 'kankan-notes';
+const SERVER_NAME = 'kanbox-notes';
 const SERVER_VERSION = '0.1.0';
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 const defaultDataDirectory = process.platform === 'darwin'
-  ? path.join(os.homedir(), 'Library', 'Application Support', 'com.patrick.kankanshoucang')
-  : path.join(os.homedir(), '.kan-kan-shou-cang');
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'com.kanbox.app')
+  : path.join(os.homedir(), '.kanbox');
 const dataDirectory = process.env.LOCAL_APP_DATA_DIR || defaultDataDirectory;
-const legacyDataDirectory = path.join(os.homedir(), '.kan-kan-shou-cang');
+const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
 
 function isUsableStoredNote(note) {
   return Boolean(
@@ -91,7 +91,7 @@ function fullNote(note) {
 const tools = [
   {
     name: 'search_saved_notes',
-    description: '搜索“看看收藏”里已经保存到本机的笔记。覆盖标题、正文、视频文稿、图片 OCR、标签、作者和分类；不会访问小红书账号或网络。',
+    description: '搜索“Kanbox”里已经保存到本机的笔记。覆盖标题、正文、视频文稿、图片 OCR、标签、作者和分类；不会访问小红书账号或网络。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -162,7 +162,7 @@ async function handleRequest(message) {
         protocolVersion: message.params?.protocolVersion || DEFAULT_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-        instructions: '这是“看看收藏”的本地只读笔记库。需要相关资料时先调用 search_saved_notes，再按需调用 read_saved_note。不得把这些工具描述成小红书账号访问；它们只读取用户已经保存到本机的内容。',
+        instructions: '这是“Kanbox”的本地只读笔记库。需要相关资料时先调用 search_saved_notes，再按需调用 read_saved_note。不得把这些工具描述成小红书账号访问；它们只读取用户已经保存到本机的内容。',
       };
     case 'ping':
       return {};
@@ -197,7 +197,14 @@ process.stdin.on('data', (chunk) => {
         return;
       }
 
-      if (message.id === undefined) return;
+      if (message.id === undefined) {
+        try {
+          await handleRequest(message);
+        } catch (error) {
+          console.error(`Notification handling error: ${error?.message || error}`);
+        }
+        return;
+      }
       try {
         writeMessage({ jsonrpc: '2.0', id: message.id, result: await handleRequest(message) });
       } catch (error) {

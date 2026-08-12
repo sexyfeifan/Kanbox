@@ -27,9 +27,9 @@ export function isAllowedRemoteVideoUrl(value) {
 function findNativeAnalyzer() {
   const candidates = [
     process.env.KANKAN_VIDEO_ANALYZER,
-    path.resolve(moduleDirectory, '../../src-tauri/bin/kankan-video-analyzer'),
-    path.resolve(moduleDirectory, '../kankan-video-analyzer'),
-    path.resolve(moduleDirectory, '../../kankan-video-analyzer'),
+    path.resolve(moduleDirectory, '../../src-tauri/bin/kanbox-video-analyzer'),
+    path.resolve(moduleDirectory, '../kanbox-video-analyzer'),
+    path.resolve(moduleDirectory, '../../kanbox-video-analyzer'),
   ].filter(Boolean);
   return candidates.find((candidate) => existsSync(candidate)) || '';
 }
@@ -43,7 +43,7 @@ async function fetchVideoResponse(url, fetchImpl, redirectCount = 0) {
     headers: {
       Accept: 'video/mp4,video/*;q=0.9,application/octet-stream;q=0.7',
       Referer: 'https://www.xiaohongshu.com/',
-      'User-Agent': 'KanKanFavorites/0.1 local-video-import',
+      'User-Agent': 'KanboxFavorites/0.1 local-video-import',
     },
   });
 

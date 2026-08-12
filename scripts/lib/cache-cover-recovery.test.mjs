@@ -7,7 +7,7 @@ import test from 'node:test';
 import { recoverCachedNoteCovers } from './cache-cover-recovery.mjs';
 
 test('recovers an expired remote cover from the WebKit cache', async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'kankan-cover-cache-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-cover-cache-'));
   const cacheDirectory = path.join(directory, 'cache');
   const resourceDirectory = path.join(cacheDirectory, 'Version 17', 'Records', 'record', 'Resource');
   const mediaDirectory = path.join(directory, 'media');
@@ -54,7 +54,7 @@ test('leaves a note unchanged when no matching cache entry exists', async () => 
   };
   const result = await recoverCachedNoteCovers([note], {
     cacheDirectories: [],
-    mediaDirectory: '/tmp/unused-kankan-media',
+    mediaDirectory: '/tmp/unused-kanbox-media',
     publicBaseUrl: 'http://127.0.0.1:4318',
   });
 

@@ -6,10 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const mcpServerPath = fileURLToPath(new URL('../kankan-mcp.mjs', import.meta.url));
+const mcpServerPath = fileURLToPath(new URL('../kanbox-mcp.mjs', import.meta.url));
 
 test('MCP server searches and reads saved local notes over stdio', async (t) => {
-  const dataDirectory = await mkdtemp(path.join(os.tmpdir(), 'kankan-mcp-'));
+  const dataDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-mcp-'));
   const noteId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
   await writeFile(path.join(dataDirectory, 'notes.json'), JSON.stringify([{
     id: noteId,
@@ -58,7 +58,7 @@ test('MCP server searches and reads saved local notes over stdio', async (t) => 
   });
 
   const initialized = await request(1, 'initialize', { protocolVersion: '2025-06-18' });
-  assert.equal(initialized.result.serverInfo.name, 'kankan-notes');
+  assert.equal(initialized.result.serverInfo.name, 'kanbox-notes');
 
   const listed = await request(2, 'tools/list');
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), ['search_saved_notes', 'read_saved_note']);

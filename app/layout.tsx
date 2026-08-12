@@ -3,8 +3,8 @@ import "./globals.css";
 import { AppProvider } from "./lib/store";
 
 export const metadata: Metadata = {
-  title: "看看收藏",
-  description: "小红书收藏沉淀",
+  title: "Kanbox",
+  description: "Xiaohongshu note collector",
   icons: { icon: '/icon.svg' },
 };
 

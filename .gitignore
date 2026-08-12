@@ -43,8 +43,8 @@ next-env.d.ts
 # tauri
 /src-tauri/target
 /src-tauri/gen
-/src-tauri/bin/kankan-video-analyzer
-/src-tauri/bin/kankan-node*
+/src-tauri/bin/kanbox-video-analyzer
+/src-tauri/bin/kanbox-node*
 
 # static export consumed by tauri
 /dist

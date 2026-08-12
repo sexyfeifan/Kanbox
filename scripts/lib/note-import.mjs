@@ -1,5 +1,5 @@
-const DRAG_PAYLOAD_PREFIX = 'KANKAN_NOTE:';
-const CARD_DRAG_PAYLOAD_PREFIX = 'KANKAN_CARD:';
+const DRAG_PAYLOAD_PREFIX = 'KANBOX_NOTE:';
+const CARD_DRAG_PAYLOAD_PREFIX = 'KANBOX_CARD:';
 const ALLOWED_HOSTS = new Set([
   'xiaohongshu.com',
   'www.xiaohongshu.com',

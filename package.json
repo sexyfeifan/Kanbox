@@ -1,6 +1,6 @@
 {
-  "name": "kankan-shoucang",
-  "version": "0.2.0",
+  "name": "kanbox",
+  "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {

@@ -227,7 +227,7 @@ async function fetchAnonymousPage(sourceUrl, fetchImpl) {
       headers: {
         Accept: 'text/html,application/xhtml+xml',
         'Accept-Language': 'zh-CN,zh;q=0.9',
-        'User-Agent': 'KanKanFavorites/0.1 anonymous-local-resolver',
+        'User-Agent': 'KanboxFavorites/0.1 anonymous-local-resolver',
       },
     });
 

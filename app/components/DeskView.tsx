@@ -1,7 +1,3 @@
-/* Hallmark · component: search + setup dialog · genre: modern-minimal
- * states: default · hover · focus · active · disabled · loading · error · success
- * pre-emit critique: P5 H5 E4 S5 R5 V4
- */
 'use client';
 
 import { useState, useEffect, useRef, useMemo, type DragEvent } from 'react';
@@ -22,6 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Play,
+  Link,
+  Download,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -29,11 +27,13 @@ import {
   formatNumber,
   connectLocalAgent,
   deleteStoredNote,
+  exportNotes,
   formatDate,
   getLocalServiceHealth,
   getLocalSetupInfo,
   importSharedNote,
   openBrowserExtensionSetup,
+  updateNote,
 } from '../lib/xhs-client';
 import type { AgentClient, LocalServiceHealth, LocalSetupInfo } from '../lib/xhs-client';
 import {
@@ -68,7 +68,7 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const TITLEBAR_SAFE_TOP = 34;
 const TITLEBAR_SAFE_LEFT = 12;
-const DRAG_PAYLOAD_PREFIX = 'KANKAN_NOTE:';
+const DRAG_PAYLOAD_PREFIX = 'KANBOX_NOTE:';
 
 type ImportPhase = 'idle' | 'dragging' | 'recognized' | 'processing' | 'complete' | 'error';
 
@@ -136,7 +136,7 @@ type GroupLabel = {
   kind: DeskGroup['kind'];
   noteCount: number;
 };
-const DESK_WORKSPACE_STORAGE_KEY = 'kankanshoucang:desk-workspace:v1';
+const DESK_WORKSPACE_STORAGE_KEY = 'kanbox:desk-workspace:v1';
 
 // ── Organized layout (cards grouped by category clusters) ─────────────────────
 type OrgResult = {
@@ -244,11 +244,13 @@ function ExpandedCard({
   note,
   onClose,
   onDelete,
+  onUpdate,
   isDeleting,
 }: {
   note: Note;
   onClose: () => void;
   onDelete: () => void;
+  onUpdate: (updates: { title?: string; tags?: string[] }) => void;
   isDeleting: boolean;
 }) {
   const color = catColor(note.category);
@@ -260,7 +262,16 @@ function ExpandedCard({
     note.type === 'video' ? 'transcript' : 'note',
   );
   const [readerPage, setReaderPage] = useState(0);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(note.title);
+  const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
+  const [tagDraft, setTagDraft] = useState('');
+  const [addingTag, setAddingTag] = useState(false);
+  const [newTagDraft, setNewTagDraft] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  const newTagInputRef = useRef<HTMLInputElement>(null);
   const sourceImageUrls = Array.from(new Set(
     note.imageUrls?.length ? note.imageUrls : (note.coverUrl ? [note.coverUrl] : []),
   ));
@@ -508,11 +519,51 @@ function ExpandedCard({
             )}
           </div>
 
-          <h2 style={{
-            margin: '22px 0 10px', fontFamily: '"Playfair Display", Georgia, serif',
-            fontSize: 25, lineHeight: 1.38, fontWeight: 600, color: '#35343A', letterSpacing: '-0.02em',
-          }}>
-            {note.title}
+          <h2
+            onClick={() => { setEditingTitle(true); setTitleDraft(note.title); }}
+            style={{
+              margin: '22px 0 10px', fontFamily: '"Playfair Display", Georgia, serif',
+              fontSize: 25, lineHeight: 1.38, fontWeight: 600, color: '#35343A', letterSpacing: '-0.02em',
+              cursor: 'text', borderRadius: 6, padding: '2px 4px', marginLeft: -4,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.03)'; }}
+            onMouseLeave={(e) => { if (!editingTitle) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+          >
+            {editingTitle ? (
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                autoFocus
+                onFocus={() => { setTimeout(() => titleInputRef.current?.select(), 0); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (titleDraft.trim() && titleDraft.trim() !== note.title) {
+                      onUpdate({ title: titleDraft.trim() });
+                    }
+                    setEditingTitle(false);
+                  }
+                  if (e.key === 'Escape') { setEditingTitle(false); }
+                }}
+                onBlur={() => {
+                  if (titleDraft.trim() && titleDraft.trim() !== note.title) {
+                    onUpdate({ title: titleDraft.trim() });
+                  }
+                  setEditingTitle(false);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                  fontFamily: '"Playfair Display", Georgia, serif',
+                  fontSize: 25, lineHeight: 1.38, fontWeight: 600, color: '#35343A', letterSpacing: '-0.02em',
+                  padding: 0,
+                }}
+              />
+            ) : (
+              note.title
+            )}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#9A958D', fontSize: 11 }}>
             <span>@{note.author.name}</span>
@@ -628,16 +679,136 @@ function ExpandedCard({
             </div>
           )}
 
-          {readerTab === 'note' && Array.isArray(note.tags) && note.tags.length > 0 && (
+          {readerTab === 'note' && (
             <div style={{
-              display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 22,
+              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 22,
             }}>
-              {note.tags.map((tag) => (
-                <span key={tag} style={{
-                  padding: '4px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.035)',
-                  color: '#8D8881', fontSize: 10.5,
-                }}>#{tag}</span>
+              {Array.isArray(note.tags) && note.tags.map((tag, index) => (
+                editingTagIndex === index ? (
+                  <input
+                    key={`tag-edit-${index}`}
+                    ref={tagInputRef}
+                    value={tagDraft}
+                    onChange={(e) => setTagDraft(e.target.value)}
+                    autoFocus
+                    onFocus={() => { setTimeout(() => tagInputRef.current?.select(), 0); }}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const newTags = [...note.tags];
+                        if (tagDraft.trim()) {
+                          newTags[index] = tagDraft.trim();
+                        } else {
+                          newTags.splice(index, 1);
+                        }
+                        onUpdate({ tags: newTags });
+                        setEditingTagIndex(null);
+                      }
+                      if (e.key === 'Escape') { setEditingTagIndex(null); }
+                      if (e.key === 'Backspace' && tagDraft === '') {
+                        const newTags = [...note.tags];
+                        newTags.splice(index, 1);
+                        onUpdate({ tags: newTags });
+                        setEditingTagIndex(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (tagDraft.trim() && tagDraft.trim() !== tag) {
+                        const newTags = [...note.tags];
+                        newTags[index] = tagDraft.trim();
+                        onUpdate({ tags: newTags });
+                      }
+                      setEditingTagIndex(null);
+                    }}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, border: `1px solid ${color}50`,
+                      background: `${color}10`, color: '#5E5A54', fontSize: 10.5,
+                      outline: 'none', width: 80,
+                    }}
+                  />
+                ) : (
+                  <span
+                    key={tag}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingTagIndex(index);
+                      setTagDraft(tag);
+                    }}
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, background: 'rgba(0,0,0,0.035)',
+                      color: '#8D8881', fontSize: 10.5, cursor: 'pointer',
+                      transition: 'background 0.12s',
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.07)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.035)'; }}
+                  >
+                    #{tag}
+                  </span>
+                )
               ))}
+              {addingTag ? (
+                <input
+                  key="new-tag-input"
+                  ref={newTagInputRef}
+                  value={newTagDraft}
+                  onChange={(e) => setNewTagDraft(e.target.value)}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const trimmed = newTagDraft.trim();
+                      if (trimmed && !(note.tags || []).includes(trimmed)) {
+                        onUpdate({ tags: [...(note.tags || []), trimmed] });
+                      }
+                      setNewTagDraft('');
+                      setAddingTag(false);
+                    }
+                    if (e.key === 'Escape') { setAddingTag(false); setNewTagDraft(''); }
+                  }}
+                  onBlur={() => {
+                    const trimmed = newTagDraft.trim();
+                    if (trimmed && !(note.tags || []).includes(trimmed)) {
+                      onUpdate({ tags: [...(note.tags || []), trimmed] });
+                    }
+                    setNewTagDraft('');
+                    setAddingTag(false);
+                  }}
+                  placeholder="标签"
+                  style={{
+                    padding: '4px 8px', borderRadius: 6, border: `1px solid ${color}50`,
+                    background: `${color}10`, color: '#5E5A54', fontSize: 10.5,
+                    outline: 'none', width: 72,
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAddingTag(true);
+                  }}
+                  style={{
+                    width: 22, height: 22, borderRadius: 6,
+                    border: '1px dashed rgba(0,0,0,0.12)', background: 'transparent',
+                    color: '#A8A29E', fontSize: 12, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'border-color 0.12s, color 0.12s',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor = color;
+                    (e.currentTarget as HTMLElement).style.color = color;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,0,0,0.12)';
+                    (e.currentTarget as HTMLElement).style.color = '#A8A29E';
+                  }}
+                  aria-label="添加标签"
+                >
+                  +
+                </button>
+              )}
             </div>
           )}
 
@@ -1019,12 +1190,16 @@ export function DeskView() {
   const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [setupPanel, setSetupPanel] = useState<SetupPanel | null>(null);
   const [setupInfo, setSetupInfo] = useState<LocalSetupInfo | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
   const [connectingClient, setConnectingClient] = useState<AgentClient | null>(null);
   const [connectedClients, setConnectedClients] = useState<Set<AgentClient>>(() => new Set());
+  const [pasteUrl, setPasteUrl] = useState('');
+  const [showPasteInput, setShowPasteInput] = useState(false);
+  const [pasteLoading, setPasteLoading] = useState(false);
 
   const loadLocalStatus = async () => {
     setServiceHealth(await getLocalServiceHealth());
@@ -1130,15 +1305,26 @@ export function DeskView() {
     () => new Map(deskState.groups.map((group) => [group.id, group.name])),
     [deskState.groups],
   );
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const note of notes) {
+      if (note.category && note.category !== '待分类') set.add(note.category);
+    }
+    return Array.from(set);
+  }, [notes]);
   const visibleNotes = useMemo(
-    () => filterNotesByQuery(
-      notes,
-      searchQuery,
-      (note: Note) => groupNameById.get(deskState.noteGroupMap?.[note.id] || 'inbox') || '',
-    ) as Note[],
-    [notes, searchQuery, groupNameById, deskState.noteGroupMap],
+    () => {
+      const filtered = filterNotesByQuery(
+        notes,
+        searchQuery,
+        (note: Note) => groupNameById.get(deskState.noteGroupMap?.[note.id] || 'inbox') || '',
+      ) as Note[];
+      if (!categoryFilter) return filtered;
+      return filtered.filter((note) => note.category === categoryFilter);
+    },
+    [notes, searchQuery, categoryFilter, groupNameById, deskState.noteGroupMap],
   );
-  const hasActiveSearch = searchQuery.trim().length > 0;
+  const hasActiveSearch = searchQuery.trim().length > 0 || categoryFilter !== null;
   const org = useMemo(
     () => buildOrganized(
       visibleNotes,
@@ -1175,7 +1361,7 @@ export function DeskView() {
       setImportFeedback({
         phase: 'error',
         title: '本地服务未连接',
-        message: '请重新启动看看收藏后再试',
+        message: '请重新启动Kanbox后再试',
       });
       dismissImportFeedback('error');
       return;
@@ -1231,8 +1417,8 @@ export function DeskView() {
     event.preventDefault();
     event.stopPropagation();
     const input = selectDraggedNoteInput({
-      custom: event.dataTransfer.getData('application/x-kankan-note')
-        || event.dataTransfer.getData('application/x-kankan-card'),
+      custom: event.dataTransfer.getData('application/x-kanbox-note')
+        || event.dataTransfer.getData('application/x-kanbox-card'),
       plain: event.dataTransfer.getData('text/plain'),
       uriList: event.dataTransfer.getData('text/uri-list'),
       mozUrl: event.dataTransfer.getData('text/x-moz-url'),
@@ -1304,6 +1490,18 @@ export function DeskView() {
     }
   };
 
+  const handleUpdateNote = async (noteId: string, updates: { title?: string; tags?: string[] }) => {
+    try {
+      const result = await updateNote(noteId, updates);
+      setNotes(result.notes);
+      setExpanded(result.note);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '保存失败';
+      setImportFeedback({ phase: 'error', title: '没有保存成功', message });
+      dismissImportFeedback('error', 3200);
+    }
+  };
+
   const handleDragStart = (noteId: string) => {
     setDraggedNoteId(noteId);
   };
@@ -1313,15 +1511,58 @@ export function DeskView() {
     setDropTargetGroupId(null);
   };
 
+  const handlePasteUrlSubmit = async () => {
+    if (!pasteUrl.trim() || pasteLoading) return;
+    setPasteLoading(true);
+    try {
+      await runImport(pasteUrl);
+      setPasteUrl('');
+      setShowPasteInput(false);
+    } catch {
+      // Error is already handled in runImport
+    } finally {
+      setPasteLoading(false);
+    }
+  };
+
+  const handlePasteInputKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handlePasteUrlSubmit();
+    }
+    if (event.key === 'Escape') {
+      setPasteUrl('');
+      setShowPasteInput(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportNotes();
+      setImportFeedback({
+        phase: 'complete',
+        title: '数据导出',
+        message: '备份文件已开始下载',
+      });
+      dismissImportFeedback('complete', 2200);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '导出失败，请重试';
+      setImportFeedback({ phase: 'error', title: '导出失败', message });
+      dismissImportFeedback('error', 3200);
+    }
+  };
+
   const canUseLocalService = serviceHealth.source === 'sidecar' && serviceHealth.ok;
 
   const subtitle = state.error
     ? state.error
     : state.isLoading
       ? '加载中…'
-      : hasActiveSearch
-        ? `找到 ${visibleNotes.length} 条`
-        : `${notes.length} 条笔记`;
+      : categoryFilter
+        ? `${categoryFilter} · ${visibleNotes.length} 条`
+        : hasActiveSearch
+          ? `找到 ${visibleNotes.length} 条`
+          : `${notes.length} 条笔记`;
 
   const isEmpty = notes.length === 0;
   const hasNoSearchResults = !isEmpty && hasActiveSearch && visibleNotes.length === 0;
@@ -1488,7 +1729,7 @@ export function DeskView() {
             fontSize: 16, fontWeight: 600, color: '#3A3840',
             letterSpacing: '-0.015em', lineHeight: 1,
           }}>
-            看看收藏
+            Kanbox
           </h1>
           <p style={{ fontSize: 10, color: '#A8A29E', marginTop: 2 }}>
             {subtitle}
@@ -1543,6 +1784,22 @@ export function DeskView() {
               {label}
             </motion.button>
           ))}
+          <motion.button
+            whileHover={{ y: -1, scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => void handleExport()}
+            style={{
+              height: 36, padding: '0 13px', borderRadius: 15,
+              border: '1px solid rgba(73,56,28,0.07)',
+              background: 'rgba(253,252,250,0.78)', color: '#666159',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
+              boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+            }}
+          >
+            <Download size={14} strokeWidth={1.8} />
+            导出
+          </motion.button>
         </div>
       </header>
 
@@ -1561,6 +1818,52 @@ export function DeskView() {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Category filter chips ── */}
+      {categories.length > 0 && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 6,
+          padding: '0 20px 10px',
+          paddingLeft: `${20 + TITLEBAR_SAFE_LEFT}px`,
+          position: 'relative', zIndex: 99,
+        }}>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter(null)}
+            style={{
+              padding: '4px 10px', borderRadius: 999, border: 'none',
+              background: categoryFilter === null ? '#829987' : 'rgba(253,252,250,0.78)',
+              color: categoryFilter === null ? '#fff' : '#666159',
+              fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+              boxShadow: categoryFilter === null ? '0 2px 8px rgba(55,45,25,0.08)' : 'none',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >
+            全部
+          </button>
+          {categories.map((cat) => {
+            const c = catColor(cat);
+            const isActive = categoryFilter === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(isActive ? null : cat)}
+                style={{
+                  padding: '4px 10px', borderRadius: 999, border: 'none',
+                  background: isActive ? c : 'rgba(253,252,250,0.78)',
+                  color: isActive ? '#fff' : '#666159',
+                  fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+                  boxShadow: isActive ? `0 2px 8px ${c}30` : 'none',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Desk canvas ── */}
       <div style={{
@@ -1891,6 +2194,7 @@ export function DeskView() {
             note={expanded}
             onClose={() => setExpanded(null)}
             onDelete={() => void handleDeleteNote(expanded)}
+            onUpdate={(updates) => void handleUpdateNote(expanded.id, updates)}
             isDeleting={deletingNoteId === expanded.id}
           />
         )}
@@ -1908,31 +2212,167 @@ export function DeskView() {
             right: 0,
             zIndex: 90,
             display: 'flex',
-            justifyContent: 'center',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 12,
             pointerEvents: 'none',
           }}
         >
-          <motion.button
-            whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-            onClick={handleCreateGroup}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              fontSize: 13, fontWeight: 500,
-              color: '#FDFCFA',
-              background: '#829987',
-              border: '1px solid #829987',
-              borderRadius: 24,
-              padding: '10px 20px',
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-              boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
-              backdropFilter: 'blur(10px)',
-              WebkitBackdropFilter: 'blur(10px)',
-            }}
-          >
-            <Plus size={16} />
-            新建分组
-          </motion.button>
+          <AnimatePresence>
+            {showPasteInput && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  pointerEvents: 'auto',
+                }}
+              >
+                <div style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}>
+                  <Link size={14} strokeWidth={1.8} style={{
+                    position: 'absolute',
+                    left: 13,
+                    color: '#8F8A82',
+                    pointerEvents: 'none',
+                  }} />
+                  <input
+                    value={pasteUrl}
+                    onChange={(e) => setPasteUrl(e.target.value)}
+                    onKeyDown={handlePasteInputKeyDown}
+                    placeholder="粘贴小红书链接"
+                    autoFocus
+                    style={{
+                      width: 320,
+                      height: 40,
+                      padding: '0 36px 0 36px',
+                      borderRadius: 20,
+                      border: '1px solid rgba(73,56,28,0.07)',
+                      background: 'rgba(253,252,250,0.95)',
+                      color: '#454248',
+                      fontSize: 13,
+                      backdropFilter: 'blur(10px)',
+                      WebkitBackdropFilter: 'blur(10px)',
+                      boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      setPasteUrl('');
+                      setShowPasteInput(false);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: 8,
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      border: 'none',
+                      background: 'rgba(0,0,0,0.06)',
+                      color: '#8F8A82',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => void handlePasteUrlSubmit()}
+                  disabled={pasteLoading || !pasteUrl.trim()}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    border: 'none',
+                    background: pasteUrl.trim() ? '#829987' : '#C8C7C2',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: pasteUrl.trim() ? 'pointer' : 'default',
+                    boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+                    opacity: pasteLoading ? 0.7 : 1,
+                  }}
+                >
+                  {pasteLoading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                      <polyline points="12 5 19 12 12 19"></polyline>
+                    </svg>
+                  )}
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div style={{
+            display: 'flex',
+            gap: 10,
+            pointerEvents: 'auto',
+          }}>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowPasteInput((prev) => !prev)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                color: showPasteInput ? '#829987' : '#666159',
+                background: showPasteInput ? 'rgba(130,153,135,0.1)' : 'rgba(253,252,250,0.95)',
+                border: showPasteInput ? '1px solid rgba(130,153,135,0.3)' : '1px solid rgba(73,56,28,0.07)',
+                borderRadius: 24,
+                padding: '10px 20px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              }}
+            >
+              <Link size={16} />
+              粘贴链接
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleCreateGroup}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 13,
+                fontWeight: 500,
+                color: '#FDFCFA',
+                background: '#829987',
+                border: '1px solid #829987',
+                borderRadius: 24,
+                padding: '10px 20px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              }}
+            >
+              <Plus size={16} />
+              新建分组
+            </motion.button>
+          </div>
         </motion.div>
       )}
 

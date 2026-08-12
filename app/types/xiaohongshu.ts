@@ -1,6 +1,5 @@
 export interface Note {
   id: string;
-  xsecToken?: string;
   sourceUrl?: string;
   title: string;
   content?: string;

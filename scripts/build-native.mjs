@@ -8,13 +8,13 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sourcePath = path.join(projectDirectory, 'scripts', 'native', 'kankan-video-analyzer.swift');
-const infoPlistPath = path.join(projectDirectory, 'scripts', 'native', 'kankan-video-analyzer-Info.plist');
+const sourcePath = path.join(projectDirectory, 'scripts', 'native', 'kanbox-video-analyzer.swift');
+const infoPlistPath = path.join(projectDirectory, 'scripts', 'native', 'kanbox-video-analyzer-Info.plist');
 const outputDirectory = path.join(projectDirectory, 'src-tauri', 'bin');
-const outputPath = path.join(outputDirectory, 'kankan-video-analyzer');
-const nodeRuntimePath = path.join(outputDirectory, 'kankan-node');
-const nodeLicensePath = path.join(outputDirectory, 'kankan-node-LICENSE');
-const nodeVersionPath = path.join(outputDirectory, 'kankan-node.version');
+const outputPath = path.join(outputDirectory, 'kanbox-video-analyzer');
+const nodeRuntimePath = path.join(outputDirectory, 'kanbox-node');
+const nodeLicensePath = path.join(outputDirectory, 'kanbox-node-LICENSE');
+const nodeVersionPath = path.join(outputDirectory, 'kanbox-node.version');
 const nodeRuntimes = {
   arm64: {
     version: '24.19.0',
@@ -40,7 +40,7 @@ async function ensureNodeRuntime() {
   const currentMarker = await readFile(nodeVersionPath, 'utf8').catch(() => '');
   if (currentMarker === expectedMarker) return;
 
-  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'kankan-node-'));
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-node-'));
   const archiveName = `node-v${runtime.version}-darwin-${architecture}.tar.gz`;
   const archivePath = path.join(temporaryDirectory, archiveName);
   try {
