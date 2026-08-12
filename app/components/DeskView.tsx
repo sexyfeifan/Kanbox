@@ -1590,54 +1590,6 @@ export function DeskView() {
     });
   };
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.key === 'f') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-
-      if (isMod && e.key === 'n') {
-        e.preventDefault();
-        handleCreateGroup();
-        return;
-      }
-
-      if (isMod && e.key === 'e') {
-        e.preventDefault();
-        void handleExport();
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        if (expanded) {
-          setExpanded(null);
-          return;
-        }
-        if (showPasteInput) {
-          setShowPasteInput(false);
-          setPasteUrl('');
-          return;
-        }
-        if (setupPanel) {
-          setSetupPanel(null);
-          return;
-        }
-        if (searchQuery) {
-          setSearchQuery('');
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
-
   const handleStartRename = (groupId: string, currentName: string) => {
     setEditingGroupId(groupId);
     setEditingGroupName(currentName);
@@ -1748,6 +1700,54 @@ export function DeskView() {
       dismissImportFeedback('error', 3200);
     }
   };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      if (isMod && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (isMod && e.key === 'n') {
+        e.preventDefault();
+        handleCreateGroup();
+        return;
+      }
+
+      if (isMod && e.key === 'e') {
+        e.preventDefault();
+        void handleExport();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (expanded) {
+          setExpanded(null);
+          return;
+        }
+        if (showPasteInput) {
+          setShowPasteInput(false);
+          setPasteUrl('');
+          return;
+        }
+        if (setupPanel) {
+          setSetupPanel(null);
+          return;
+        }
+        if (searchQuery) {
+          setSearchQuery('');
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
 
   const canUseLocalService = serviceHealth.source === 'sidecar' && serviceHealth.ok;
 
