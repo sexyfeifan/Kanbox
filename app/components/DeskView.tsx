@@ -31,6 +31,7 @@ import {
   formatDate,
   getLocalServiceHealth,
   getLocalSetupInfo,
+  getNotes,
   importSharedNote,
   openBrowserExtensionSetup,
   updateNote,
@@ -1417,54 +1418,6 @@ export function DeskView() {
     };
   }, []);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.key === 'f') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-
-      if (isMod && e.key === 'n') {
-        e.preventDefault();
-        handleCreateGroup();
-        return;
-      }
-
-      if (isMod && e.key === 'e') {
-        e.preventDefault();
-        void handleExport();
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        if (expanded) {
-          setExpanded(null);
-          return;
-        }
-        if (showPasteInput) {
-          setShowPasteInput(false);
-          setPasteUrl('');
-          return;
-        }
-        if (setupPanel) {
-          setSetupPanel(null);
-          return;
-        }
-        if (searchQuery) {
-          setSearchQuery('');
-          return;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
-
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1636,6 +1589,54 @@ export function DeskView() {
       return next;
     });
   };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      if (isMod && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (isMod && e.key === 'n') {
+        e.preventDefault();
+        handleCreateGroup();
+        return;
+      }
+
+      if (isMod && e.key === 'e') {
+        e.preventDefault();
+        void handleExport();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (expanded) {
+          setExpanded(null);
+          return;
+        }
+        if (showPasteInput) {
+          setShowPasteInput(false);
+          setPasteUrl('');
+          return;
+        }
+        if (setupPanel) {
+          setSetupPanel(null);
+          return;
+        }
+        if (searchQuery) {
+          setSearchQuery('');
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
 
   const handleStartRename = (groupId: string, currentName: string) => {
     setEditingGroupId(groupId);
@@ -1918,6 +1919,7 @@ export function DeskView() {
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(0,0,0,0.04)',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         WebkitAppRegion: 'drag' as any,
       }}>
         <div style={{ width: 190, flexShrink: 0 }}>
@@ -1955,6 +1957,7 @@ export function DeskView() {
               borderRadius: 13, border: '1px solid rgba(73,56,28,0.07)',
               background: 'rgba(253,252,250,0.58)',
               color: '#454248', fontSize: 12,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               WebkitAppRegion: 'no-drag' as any,
             }}
           />
@@ -2002,7 +2005,8 @@ export function DeskView() {
                 display: 'flex', alignItems: 'center', gap: 6,
                 fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
                 boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
-                WebkitAppRegion: 'no-drag' as any,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              WebkitAppRegion: 'no-drag' as any,
               }}
             >
               <Icon size={14} strokeWidth={1.8} />
@@ -2020,6 +2024,7 @@ export function DeskView() {
               display: 'flex', alignItems: 'center', gap: 6,
               fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
               boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               WebkitAppRegion: 'no-drag' as any,
             }}
           >
@@ -2632,6 +2637,78 @@ export function DeskView() {
           </div>
         </motion.div>
       )}
+
+      {/* ── Batch action bar ── */}
+      <AnimatePresence>
+        {batchMode && selectedNoteIds.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              left: 0,
+              right: 0,
+              zIndex: 100,
+              display: 'flex',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '12px 20px',
+              borderRadius: 20,
+              background: 'rgba(253,252,250,0.95)',
+              border: '1px solid rgba(73,56,28,0.08)',
+              boxShadow: '0 8px 32px rgba(55,45,25,0.15)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              pointerEvents: 'auto',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#454248' }}>
+                已选 {selectedNoteIds.size} 条
+              </span>
+              <button onClick={async () => {
+                const ids = Array.from(selectedNoteIds);
+                for (const id of ids) {
+                  try {
+                    await deleteStoredNote(id);
+                  } catch { /* ignore */ }
+                }
+                const result = await getNotes();
+                setNotes(result);
+                setSelectedNoteIds(new Set());
+                setBatchMode(false);
+              }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  height: 36, padding: '0 14px', borderRadius: 12,
+                  border: 'none', background: 'rgba(181,106,91,0.12)',
+                  color: '#A85F52', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}>
+                <Trash2 size={14} strokeWidth={1.8} />
+                删除选中
+              </button>
+              <button onClick={() => {
+                setBatchMode(false);
+                setSelectedNoteIds(new Set());
+              }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  height: 36, padding: '0 14px', borderRadius: 12,
+                  border: '1px solid rgba(73,56,28,0.08)', background: 'transparent',
+                  color: '#666159', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                }}>
+                退出多选
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
