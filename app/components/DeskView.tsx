@@ -1919,9 +1919,9 @@ export function DeskView() {
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(0,0,0,0.04)',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        WebkitAppRegion: 'drag' as any,
-      }}>
+      }}
+      className="titlebar-drag"
+    >
         <div style={{ width: 190, flexShrink: 0 }}>
           <h1 style={{
             fontFamily: '"Playfair Display", Georgia, serif',
@@ -1957,9 +1957,8 @@ export function DeskView() {
               borderRadius: 13, border: '1px solid rgba(73,56,28,0.07)',
               background: 'rgba(253,252,250,0.58)',
               color: '#454248', fontSize: 12,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              WebkitAppRegion: 'no-drag' as any,
             }}
+            className="titlebar-no-drag"
           />
         </div>
 
@@ -2005,9 +2004,8 @@ export function DeskView() {
                 display: 'flex', alignItems: 'center', gap: 6,
                 fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
                 boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              WebkitAppRegion: 'no-drag' as any,
               }}
+              className="titlebar-no-drag"
             >
               <Icon size={14} strokeWidth={1.8} />
               {label}
@@ -2024,9 +2022,8 @@ export function DeskView() {
               display: 'flex', alignItems: 'center', gap: 6,
               fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
               boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              WebkitAppRegion: 'no-drag' as any,
             }}
+            className="titlebar-no-drag"
           >
             <Download size={14} strokeWidth={1.8} />
             导出

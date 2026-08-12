@@ -155,3 +155,11 @@ body.wall-mode {
 /* Prose */
 .prose { line-height: 1.8; }
 .prose p { margin-bottom: 1em; }
+
+/* Tauri window drag regions */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
