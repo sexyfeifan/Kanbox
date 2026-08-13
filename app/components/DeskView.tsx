@@ -1282,6 +1282,10 @@ function SetupDialog({
                 href="https://github.com/sexyfeifan/Kanbox/releases/latest"
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open('https://github.com/sexyfeifan/Kanbox/releases/latest', '_blank');
+                }}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                   width: '100%', height: 42, borderRadius: 12,
@@ -1289,6 +1293,8 @@ function SetupDialog({
                   fontSize: 13, fontWeight: 600,
                   textDecoration: 'none',
                   marginBottom: 12,
+                  cursor: 'pointer',
+                  pointerEvents: 'auto',
                 }}
               >
                 <ExternalLink size={14} />
@@ -2289,6 +2295,7 @@ export function DeskView() {
         <div style={{ display: 'flex', gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
           {([['newest', '最新'], ['oldest', '最早'], ['title', '标题']] as const).map(([key, label]) => (
             <button key={key} onClick={() => setSortBy(key)}
+              className="titlebar-no-drag"
               style={{
                 padding: '0 8px', height: 28, border: 'none', fontSize: 10, cursor: 'pointer',
                 background: sortBy === key ? 'rgba(130,153,135,0.12)' : 'transparent',
@@ -2301,6 +2308,7 @@ export function DeskView() {
         </div>
 
         <button onClick={toggleBatchMode}
+          className="titlebar-no-drag"
           style={{
             padding: '0 8px', height: 28, borderRadius: 8, border: batchMode ? '1px solid rgba(130,153,135,0.4)' : '1px solid rgba(73,56,28,0.07)',
             fontSize: 10, cursor: 'pointer',
@@ -2494,6 +2502,7 @@ export function DeskView() {
           <button
             type="button"
             onClick={() => setCategoryFilter(null)}
+            className="titlebar-no-drag"
             style={{
               padding: '4px 10px', borderRadius: 999, border: 'none',
               background: categoryFilter === null ? '#829987' : 'rgba(253,252,250,0.78)',
@@ -2513,6 +2522,7 @@ export function DeskView() {
                 key={cat}
                 type="button"
                 onClick={() => setCategoryFilter(isActive ? null : cat)}
+                className="titlebar-no-drag"
                 style={{
                   padding: '4px 10px', borderRadius: 999, border: 'none',
                   background: isActive ? c : 'rgba(253,252,250,0.78)',
@@ -3169,18 +3179,21 @@ export function DeskView() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             onClick={() => setShowSettings(false)}
             style={{
               position: 'fixed', inset: 0, zIndex: 310,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: 28, background: 'rgba(73, 67, 57, 0.18)',
               backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+              willChange: 'opacity',
             }}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.96, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.15 }}
               onClick={e => e.stopPropagation()}
               style={{
                 width: 'min(520px, calc(100vw - 48px))',
@@ -3191,6 +3204,7 @@ export function DeskView() {
                 boxShadow: '0 34px 90px rgba(73,56,28,0.2)',
                 overflow: 'hidden',
                 display: 'flex', flexDirection: 'column',
+                willChange: 'transform, opacity',
               }}
             >
               {/* Header */}

@@ -112,16 +112,21 @@ fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
         .open(data_dir.join("local-api.stderr.log"))
         .map_err(|err| err.to_string())?;
 
+    // Set working directory to the script's parent directory for module resolution
+    let script_dir = script_path.parent().unwrap_or(&script_path);
+
     let child = Command::new(&node_bin)
-        .arg(script_path)
+        .arg(&script_path)
+        .current_dir(script_dir)
         .env("LOCAL_API_PORT", LOCAL_API_PORT)
         .env("LOCAL_APP_DATA_DIR", &data_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log))
-        .spawn();
+        .spawn()
+        .map_err(|err| format!("failed to spawn local-api with {}: {err}", node_bin))?;
 
-    child.map_err(|err| format!("failed to spawn local-api: {err}"))
+    Ok(child)
 }
 
 fn main() {

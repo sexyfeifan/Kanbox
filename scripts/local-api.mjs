@@ -95,26 +95,35 @@ async function resolveAgentExecutable(client) {
         '/usr/local/bin/codex',
         path.join(os.homedir(), '.local', 'bin', 'codex'),
         path.join(os.homedir(), '.npm-global', 'bin', 'codex'),
+        path.join(os.homedir(), 'bin', 'codex'),
       ]
     : [
         '/opt/homebrew/bin/claude',
         '/usr/local/bin/claude',
         path.join(os.homedir(), '.local', 'bin', 'claude'),
         path.join(os.homedir(), '.claude', 'local', 'claude'),
+        path.join(os.homedir(), 'bin', 'claude'),
       ];
+
   const knownPath = firstExistingPath(candidates);
   if (knownPath) return knownPath;
 
-  try {
-    const { stdout } = await execFileAsync('/bin/zsh', ['-lc', `command -v ${executableName}`], {
-      timeout: 5000,
-      maxBuffer: 64 * 1024,
-    });
-    const resolved = stdout.trim();
-    return resolved && existsSync(resolved) ? resolved : null;
-  } catch {
-    return null;
+  // Try multiple shell environments for PATH resolution
+  for (const shell of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
+    try {
+      const { stdout } = await execFileAsync(shell, ['-lc', `command -v ${executableName}`], {
+        timeout: 5000,
+        maxBuffer: 64 * 1024,
+        env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}` },
+      });
+      const resolved = stdout.trim();
+      if (resolved && existsSync(resolved)) return resolved;
+    } catch {
+      continue;
+    }
   }
+
+  return null;
 }
 
 async function buildSetupResponse() {

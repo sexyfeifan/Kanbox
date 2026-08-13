@@ -295,6 +295,13 @@ export type IntegrityResult = {
 
 export async function exportNotes(): Promise<void> {
   try {
+    // First check if service is available
+    const health = await getLocalServiceHealth();
+    if (!health.ok) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+
+    // Use fetch + blob download (works in Tauri webview)
     const response = await fetch(`${LOCAL_API_BASE_URL}/notes/export`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -306,32 +313,15 @@ export async function exportNotes(): Promise<void> {
       throw new Error(errorPayload?.error || `导出失败: ${response.status}`);
     }
 
-    const rawText = await response.text();
-    if (!rawText || rawText.trim().length === 0) {
-      throw new Error('没有可导出的笔记');
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      throw new Error('导出数据格式异常，请重试');
-    }
-
-    const notes = Array.isArray(parsed) ? parsed : (parsed as { notes?: unknown[] })?.notes;
-    if (Array.isArray(notes) && notes.length === 0) {
-      throw new Error('没有可导出的笔记');
-    }
-
-    const blob = new Blob([rawText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = blobUrl;
     a.download = `kanbox-export-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error('本地服务未连接，请先启动 Kanbox');

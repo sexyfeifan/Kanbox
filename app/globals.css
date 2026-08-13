@@ -159,7 +159,11 @@ body.wall-mode {
 /* Tauri window drag regions */
 .titlebar-drag {
   -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .titlebar-no-drag {
   -webkit-app-region: no-drag;
+  -webkit-user-select: auto;
+  user-select: auto;
 }
