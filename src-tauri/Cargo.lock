@@ -1546,8 +1546,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "kan-kan-shou-cang"
-version = "0.2.0"
+name = "kanbox"
+version = "0.3.3"
 dependencies = [
  "tauri",
  "tauri-build",

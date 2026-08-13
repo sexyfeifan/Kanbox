@@ -91,6 +91,7 @@ async function resolveAgentExecutable(client) {
   const executableName = client === 'codex' ? 'codex' : 'claude';
   const candidates = client === 'codex'
     ? [
+        path.join(os.homedir(), '.codex', 'bin', 'codex'),
         '/opt/homebrew/bin/codex',
         '/usr/local/bin/codex',
         path.join(os.homedir(), '.local', 'bin', 'codex'),
@@ -314,7 +315,7 @@ async function renameTag(oldName, newName) {
     renamedCount++;
     return {
       ...note,
-      tags: note.tags.map(t => t === oldName ? newName : t),
+      tags: [...new Set(note.tags.map(t => t === oldName ? newName : t).filter(Boolean))],
     };
   });
   await writeNotes(updated);
@@ -476,6 +477,15 @@ async function exportNotesMarkdown() {
   return md;
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function exportNotesHtml() {
   const notes = await readNotes();
   let html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>Kanbox 笔记导出</title>
@@ -485,13 +495,13 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
 </head><body><h1>Kanbox 笔记导出</h1><p>导出时间: ${new Date().toISOString()} | 笔记总数: ${notes.length}</p>`;
 
   for (const note of notes) {
-    html += `<div class="note"><h2>${note.title || '未命名笔记'}</h2>`;
-    html += `<meta>作者: ${note.author?.name || '未知'} | 分类: ${note.category || '未分类'} | ${note.savedAt || ''}</meta>`;
-    if (note.sourceUrl) html += `<p><a href="${note.sourceUrl}" target="_blank">查看原帖</a></p>`;
-    if (note.tags?.length) html += `<tags>${note.tags.map(t => `<span>#${t}</span>`).join('')}</tags>`;
-    if (note.rawContent || note.content) html += `<p>${(note.rawContent || note.content).replace(/\n/g, '<br>')}</p>`;
-    if (note.ocrText) html += `<h3>图片文字</h3><p>${note.ocrText.replace(/\n/g, '<br>')}</p>`;
-    if (note.transcriptText) html += `<h3>视频文稿</h3><p>${note.transcriptText.replace(/\n/g, '<br>')}</p>`;
+    html += `<div class="note"><h2>${escapeHtml(note.title || '未命名笔记')}</h2>`;
+    html += `<div class="meta">作者: ${escapeHtml(note.author?.name || '未知')} | 分类: ${escapeHtml(note.category || '未分类')} | ${escapeHtml(note.savedAt || '')}</div>`;
+    if (note.sourceUrl) html += `<p><a href="${escapeHtml(note.sourceUrl)}" target="_blank">查看原帖</a></p>`;
+    if (note.tags?.length) html += `<tags>${note.tags.map(t => `<span>#${escapeHtml(t)}</span>`).join('')}</tags>`;
+    if (note.rawContent || note.content) html += `<p>${escapeHtml(note.rawContent || note.content).replace(/\n/g, '<br>')}</p>`;
+    if (note.ocrText) html += `<h3>图片文字</h3><p>${escapeHtml(note.ocrText).replace(/\n/g, '<br>')}</p>`;
+    if (note.transcriptText) html += `<h3>视频文稿</h3><p>${escapeHtml(note.transcriptText).replace(/\n/g, '<br>')}</p>`;
     html += `</div>`;
   }
   html += `</body></html>`;
@@ -534,7 +544,7 @@ async function restoreFromBackup(body) {
   let skippedCount = 0;
 
   for (const note of body.notes) {
-    if (!note.id || existingIds.has(note.id)) {
+    if (!note.id || typeof note.id !== 'string' || !/^[0-9a-f]{24}$/i.test(note.id) || existingIds.has(note.id)) {
       skippedCount++;
       continue;
     }
@@ -718,10 +728,11 @@ async function updateNote(noteId, updates = {}) {
   const updated = { ...note };
 
   if (typeof updates.title === 'string') {
-    updated.title = updates.title;
+    const cleaned = updates.title.replace(/\s+/g, ' ').trim().slice(0, 300);
+    updated.title = cleaned || '未命名笔记';
   }
   if (Array.isArray(updates.tags)) {
-    updated.tags = updates.tags;
+    updated.tags = [...new Set(updates.tags.map(t => String(t || '').trim()).filter(Boolean).slice(0, 20))];
   }
 
   updated.category = inferCategoryFromNote(updated);
@@ -819,8 +830,16 @@ async function sendVideoFile(request, response, pathname) {
         response.end();
         return true;
       }
-      const start = rangeMatch[1] ? Number.parseInt(rangeMatch[1], 10) : 0;
-      const requestedEnd = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : fileStats.size - 1;
+      let start;
+      let requestedEnd;
+      if (!rangeMatch[1] && rangeMatch[2]) {
+        // bytes=-N: last N bytes
+        requestedEnd = fileStats.size - 1;
+        start = Math.max(0, fileStats.size - Number.parseInt(rangeMatch[2], 10));
+      } else {
+        start = rangeMatch[1] ? Number.parseInt(rangeMatch[1], 10) : 0;
+        requestedEnd = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : fileStats.size - 1;
+      }
       const end = Math.min(requestedEnd, fileStats.size - 1);
       if (start < 0 || start > end || start >= fileStats.size) {
         response.writeHead(416, { 'Content-Range': `bytes */${fileStats.size}` });
@@ -869,7 +888,7 @@ const server = createServer(async (request, response) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': request.headers.origin || 'http://127.0.0.1',
       });
       response.write('data: {"type":"connected"}\n\n');
       sseClients.add(response);
@@ -903,6 +922,19 @@ const server = createServer(async (request, response) => {
         path: extensionDirectory,
         message: '已打开 Chrome 扩展页和插件文件夹',
       });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/setup/open-external') {
+      const body = await readRequestBody(request);
+      const target = body && typeof body.url === 'string' ? body.url.trim() : '';
+      // Restrict to GitHub to avoid opening arbitrary URLs from the webview.
+      if (!/^https?:\/\/(www\.)?github\.com\//i.test(target)) {
+        throw new Error('仅支持打开 GitHub 链接');
+      }
+      if (process.platform !== 'darwin') throw new Error('当前仅支持在 macOS 上打开外部链接');
+      launchDetached('open', [target]);
+      sendJson(request, response, 200, { ok: true, url: target });
       return;
     }
 
@@ -965,8 +997,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const deleteNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})$/i);
+    const deleteNoteMatch = url.pathname.match(/\/notes\/([0-9a-f]{24})$/i);
     if (request.method === 'DELETE' && deleteNoteMatch) {
+      // Block chrome-extension from deleting notes (security)
+      const deleteOrigin = request.headers.origin;
+      if (deleteOrigin && deleteOrigin.startsWith('chrome-extension://')) {
+        sendJson(request, response, 403, { ok: false, error: '浏览器扩展不允许删除笔记' });
+        return;
+      }
       const result = await queueNoteDelete(deleteNoteMatch[1].toLowerCase());
       if (!result) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在或已被删除' });
@@ -1076,7 +1114,9 @@ const server = createServer(async (request, response) => {
         const boundaryMatch = contentType.match(/boundary=(.+)/i);
         if (!boundaryMatch) throw new Error('Missing multipart boundary');
         const boundary = boundaryMatch[1];
-        const parts = bodyBuf.toString('binary').split('--' + boundary);
+        const boundaryBuf = Buffer.from('--' + boundary);
+        const bodyStr = bodyBuf.toString('utf8');
+        const parts = bodyStr.split('--' + boundary);
         for (const part of parts) {
           if (part.includes('filename=')) {
             const jsonStart = part.indexOf('\r\n\r\n');

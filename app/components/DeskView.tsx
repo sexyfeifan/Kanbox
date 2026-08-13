@@ -36,6 +36,7 @@ import {
   getNotes,
   importSharedNote,
   openBrowserExtensionSetup,
+  openExternalUrl,
   updateNote,
   getDataInfo,
   createBackup,
@@ -1283,8 +1284,11 @@ function SetupDialog({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
-                  window.open('https://github.com/sexyfeifan/Kanbox/releases/latest', '_blank');
+                  void openExternalUrl('https://github.com/sexyfeifan/Kanbox/releases/latest').catch(() => {
+                    window.location.href = 'https://github.com/sexyfeifan/Kanbox/releases/latest';
+                  });
                 }}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
@@ -1484,6 +1488,16 @@ export function DeskView() {
   // Group drag-to-reorder states
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
+
+  // i18n module is not reactive — force a re-render when the language changes
+  // so all `t(...)` / `getLanguage()` call sites refresh.
+  const [, setLangVersion] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onLangChange = () => setLangVersion((v) => v + 1);
+    window.addEventListener('kanbox:langchange', onLangChange);
+    return () => window.removeEventListener('kanbox:langchange', onLangChange);
+  }, []);
 
   const toggleBatchMode = () => {
     setBatchMode(prev => !prev);
@@ -1945,6 +1959,38 @@ export function DeskView() {
     }
   };
 
+  const handleExportMarkdown = async () => {
+    try {
+      await exportNotesMarkdown();
+      setImportFeedback({
+        phase: 'complete',
+        title: 'Markdown 导出',
+        message: '文件已开始下载',
+      });
+      dismissImportFeedback('complete', 2200);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '导出失败，请重试';
+      setImportFeedback({ phase: 'error', title: '导出失败', message });
+      dismissImportFeedback('error', 3200);
+    }
+  };
+
+  const handleExportHtml = async () => {
+    try {
+      await exportNotesHtml();
+      setImportFeedback({
+        phase: 'complete',
+        title: 'HTML 导出',
+        message: '文件已开始下载',
+      });
+      dismissImportFeedback('complete', 2200);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '导出失败，请重试';
+      setImportFeedback({ phase: 'error', title: '导出失败', message });
+      dismissImportFeedback('error', 3200);
+    }
+  };
+
   const handleOpenSettings = async () => {
     setShowSettings(true);
     try {
@@ -2251,6 +2297,7 @@ export function DeskView() {
         borderBottom: '1px solid rgba(0,0,0,0.04)',
       }}
       className="titlebar-drag"
+      data-tauri-drag-region=""
     >
         <div style={{ width: 190, flexShrink: 0 }}>
           <h1 style={{
@@ -3250,11 +3297,11 @@ export function DeskView() {
                       style={{ height: 36, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                       JSON 备份
                     </button>
-                    <button onClick={() => exportNotesMarkdown()}
+                    <button onClick={() => void handleExportMarkdown()}
                       style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                       Markdown
                     </button>
-                    <button onClick={() => exportNotesHtml()}
+                    <button onClick={() => void handleExportHtml()}
                       style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                       HTML
                     </button>

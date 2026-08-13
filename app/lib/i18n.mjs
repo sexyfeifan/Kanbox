@@ -119,6 +119,7 @@ export function setLanguage(lang) {
     currentLang = lang;
     if (typeof window !== 'undefined') {
       localStorage.setItem('kanbox:lang', lang);
+      window.dispatchEvent(new Event('kanbox:langchange'));
     }
   }
 }

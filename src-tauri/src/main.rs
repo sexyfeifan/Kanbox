@@ -7,7 +7,7 @@ use std::{
     sync::Mutex,
 };
 
-use tauri::{path::BaseDirectory, Manager};
+use tauri::{path::BaseDirectory, Emitter, Manager};
 
 const LOCAL_API_PORT: &str = "4318";
 
@@ -137,7 +137,23 @@ fn main() {
                     app.manage(LocalApiState(Mutex::new(Some(child))));
                 }
                 Err(err) => {
-                    eprintln!("{err}");
+                    eprintln!("[kanbox] local-api spawn failed: {err}");
+                    // Surface the failure to the frontend via event (when a Tauri
+                    // event listener is registered) instead of failing silently.
+                    let _ = app.emit("local-api-error", err.clone());
+                    // Fallback that needs no IPC: persist the error so the app can
+                    // surface it even before any event listener is attached.
+                    if let Ok(data_dir) = app.path().app_local_data_dir() {
+                        if let Ok(mut f) = OpenOptions::new()
+                            .create(true)
+                            .truncate(true)
+                            .write(true)
+                            .open(data_dir.join("local-api.error"))
+                        {
+                            use std::io::Write;
+                            let _ = writeln!(f, "{err}");
+                        }
+                    }
                 }
             }
             Ok(())

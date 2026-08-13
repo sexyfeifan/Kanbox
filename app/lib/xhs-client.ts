@@ -203,6 +203,13 @@ export async function openBrowserExtensionSetup(): Promise<{ ok: boolean; path: 
   return fetchLocalApi('/setup/browser-extension/open', { method: 'POST' }, 8000);
 }
 
+export async function openExternalUrl(url: string): Promise<{ ok: boolean }> {
+  return fetchLocalApi('/setup/open-external', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  }, 8000);
+}
+
 export async function connectLocalAgent(client: AgentClient): Promise<{ ok: boolean; message: string }> {
   return fetchLocalApi('/setup/agent/connect', {
     method: 'POST',
@@ -330,12 +337,78 @@ export async function exportNotes(): Promise<void> {
   }
 }
 
-export function exportNotesMarkdown() {
-  window.open(`${LOCAL_API_BASE_URL}/notes/export/markdown`, '_blank');
+export async function exportNotesMarkdown(): Promise<void> {
+  try {
+    // First check if service is available
+    const health = await getLocalServiceHealth();
+    if (!health.ok) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+
+    // Use fetch + blob download (works in Tauri webview)
+    const response = await fetch(`${LOCAL_API_BASE_URL}/notes/export/markdown`, {
+      method: 'GET',
+      headers: { 'Accept': 'text/markdown' },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(errorPayload?.error || `导出失败: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `kanbox-export-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+    throw error;
+  }
 }
 
-export function exportNotesHtml() {
-  window.open(`${LOCAL_API_BASE_URL}/notes/export/html`, '_blank');
+export async function exportNotesHtml(): Promise<void> {
+  try {
+    // First check if service is available
+    const health = await getLocalServiceHealth();
+    if (!health.ok) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+
+    // Use fetch + blob download (works in Tauri webview)
+    const response = await fetch(`${LOCAL_API_BASE_URL}/notes/export/html`, {
+      method: 'GET',
+      headers: { 'Accept': 'text/html' },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(errorPayload?.error || `导出失败: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `kanbox-export-${new Date().toISOString().slice(0, 10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+    throw error;
+  }
 }
 
 export async function getDataInfo(): Promise<DataInfo> {
