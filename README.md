@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.3.1-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.3.2-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,13 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据全程存在你自己的电脑上，不上传云端，不需要 AI API key。
+
+## 🆕 v0.3.2 更新
+
+- **窗口定位修复** — 修复窗口卡在右下角的问题，启动时自动居中
+- **本地服务启动修复** — 新电脑安装后自动修复 Node 二进制权限，解决「本地服务未连接」
+- **扩展引导优化** — 插件安装引导改为从 GitHub 下载，附详细步骤
+- **导出功能修复** — 修复导出按钮「load failed」错误，改用 blob 下载
 
 ## 🆕 v0.3.1 更新
 
