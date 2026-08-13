@@ -81,6 +81,22 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['link', 'page'],
     documentUrlPatterns: ['*://*.zhihu.com/*'],
   });
+
+  // Kuaishou
+  chrome.contextMenus.create({
+    id: 'kanbox-save-kuaishou',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.kuaishou.com/*', '*://*.gifshow.com/*'],
+  });
+
+  // Toutiao
+  chrome.contextMenus.create({
+    id: 'kanbox-save-toutiao',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.toutiao.com/*'],
+  });
 });
 
 // Handle context menu clicks
@@ -116,7 +132,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     };
   }
 
-  if (info.menuItemId === 'kanbox-save-bilibili' || info.menuItemId === 'kanbox-save-weibo' || info.menuItemId === 'kanbox-save-douyin' || info.menuItemId === 'kanbox-save-zhihu') {
+  if (info.menuItemId === 'kanbox-save-bilibili' || info.menuItemId === 'kanbox-save-weibo' || info.menuItemId === 'kanbox-save-douyin' || info.menuItemId === 'kanbox-save-zhihu' || info.menuItemId === 'kanbox-save-kuaishou' || info.menuItemId === 'kanbox-save-toutiao') {
     const url = info.linkUrl || info.pageUrl;
     if (!url) return;
     // Extract a simple ID from the URL
@@ -124,7 +140,9 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     const weiboMatch = url.match(/weibo\.com\/\d+\/([a-zA-Z0-9]+)/i);
     const douyinMatch = url.match(/douyin\.com\/(?:video|note)\/(\d+)/i);
     const zhihuMatch = url.match(/zhihu\.com\/(?:p|answer)\/(\d+)/i);
-    const id = biliMatch?.[1] ? `bili_${biliMatch[1]}` : weiboMatch?.[1] ? `weibo_${weiboMatch[1]}` : douyinMatch?.[1] ? `dy_${douyinMatch[1]}` : zhihuMatch?.[1] ? `zhihu_${zhihuMatch[1]}` : `link_${Date.now().toString(36)}`;
+    const ksMatch = url.match(/kuaishou\.com\/(?:short-video|photo)\/([a-zA-Z0-9]+)/i);
+    const ttMatch = url.match(/toutiao\.com\/(?:article|video)\/(\d+)/i);
+    const id = biliMatch?.[1] ? `bili_${biliMatch[1]}` : weiboMatch?.[1] ? `weibo_${weiboMatch[1]}` : douyinMatch?.[1] ? `dy_${douyinMatch[1]}` : zhihuMatch?.[1] ? `zhihu_${zhihuMatch[1]}` : ksMatch?.[1] ? `ks_${ksMatch[1]}` : ttMatch?.[1] ? `tt_${ttMatch[1]}` : `link_${Date.now().toString(36)}`;
     noteData = {
       id,
       sourceUrl: url,

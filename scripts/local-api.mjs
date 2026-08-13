@@ -472,6 +472,35 @@ async function createBackup() {
   return { ok: true, path: backupPath, size: stats.size };
 }
 
+async function restoreFromBackup(body) {
+  if (!body || !Array.isArray(body.notes)) {
+    throw new Error('备份文件格式不正确');
+  }
+
+  const existingNotes = await readNotes();
+  const existingIds = new Set(existingNotes.map(n => n.id));
+  let importedCount = 0;
+  let skippedCount = 0;
+
+  for (const note of body.notes) {
+    if (!note.id || existingIds.has(note.id)) {
+      skippedCount++;
+      continue;
+    }
+    existingNotes.push(note);
+    importedCount++;
+  }
+
+  await writeNotes(existingNotes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  return {
+    notes: existingNotes,
+    imported: importedCount,
+    skipped: skippedCount,
+    total: existingNotes.length,
+  };
+}
+
 let autoBackupTimer = null;
 
 async function runAutoBackup() {
@@ -955,6 +984,34 @@ const server = createServer(async (request, response) => {
     // Backup
     if (request.method === 'POST' && url.pathname === '/data/backup') {
       sendJson(request, response, 200, await createBackup());
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/restore') {
+      const contentType = request.headers['content-type'] || '';
+      let parsedBody;
+      if (contentType.includes('multipart/form-data')) {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        const bodyBuf = Buffer.concat(chunks);
+        const boundaryMatch = contentType.match(/boundary=(.+)/i);
+        if (!boundaryMatch) throw new Error('Missing multipart boundary');
+        const boundary = boundaryMatch[1];
+        const parts = bodyBuf.toString('binary').split('--' + boundary);
+        for (const part of parts) {
+          if (part.includes('filename=')) {
+            const jsonStart = part.indexOf('\r\n\r\n');
+            if (jsonStart >= 0) {
+              const jsonStr = part.slice(jsonStart + 4).replace(/\r\n--\s*$/, '').trim();
+              parsedBody = JSON.parse(jsonStr);
+            }
+          }
+        }
+      } else {
+        parsedBody = await readRequestBody(request);
+      }
+      const result = await queueMutation(() => restoreFromBackup(parsedBody));
+      sendJson(request, response, 200, result);
       return;
     }
 

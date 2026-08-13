@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Kanbox · Quick Import",
   "version": "0.2.0",
-  "description": "Save notes from Xiaohongshu, Bilibili, Weibo, Douyin, and Zhihu to your local Kanbox library.",
+  "description": "Save notes from Xiaohongshu, Bilibili, Weibo, Douyin, Zhihu, Kuaishou, and Toutiao to your local Kanbox library.",
   "permissions": [
     "activeTab",
     "contextMenus"
@@ -41,7 +41,11 @@
         "https://weibo.com/*",
         "https://m.weibo.com/*",
         "https://www.douyin.com/*",
-        "https://www.zhihu.com/*"
+        "https://www.zhihu.com/*",
+        "https://www.kuaishou.com/*",
+        "https://m.kuaishou.com/*",
+        "https://www.toutiao.com/*",
+        "https://m.toutiao.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

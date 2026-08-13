@@ -333,6 +333,29 @@ export async function createBackup(): Promise<{ ok: boolean; path: string; size:
   return fetchLocalApi('/data/backup', { method: 'POST' }, 15000);
 }
 
+export type RestoreResult = {
+  notes: Note[];
+  imported: number;
+  skipped: number;
+  total: number;
+};
+
+export async function restoreFromBackup(file: File): Promise<RestoreResult> {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  const payload = await fetchLocalApi<{ notes: RawNote[]; imported: number; skipped: number; total: number }>('/data/restore', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }, 60000);
+  const response = normalizeRemoteNotes(payload);
+  return {
+    notes: response.notes,
+    imported: (payload as any).imported || 0,
+    skipped: (payload as any).skipped || 0,
+    total: response.notes.length,
+  };
+}
+
 export async function checkDataIntegrity(): Promise<IntegrityResult> {
   return fetchLocalApi('/data/integrity', undefined, 15000);
 }

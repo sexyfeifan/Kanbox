@@ -24,6 +24,20 @@ async function getNotes() {
   }
 }
 
+async function getCurrentPlatform() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url) return 'unknown';
+  const host = new URL(tab.url).hostname;
+  if (host.includes('xiaohongshu.com')) return '小红书';
+  if (host.includes('bilibili.com')) return 'B站';
+  if (host.includes('weibo.com')) return '微博';
+  if (host.includes('douyin.com')) return '抖音';
+  if (host.includes('zhihu.com')) return '知乎';
+  if (host.includes('kuaishou.com')) return '快手';
+  if (host.includes('toutiao.com')) return '头条';
+  return '未知';
+}
+
 async function getCurrentTabNoteId() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return null;
@@ -109,6 +123,15 @@ async function loadStats() {
   const today = new Date().toDateString();
   const todayNotes = notes.filter(n => new Date(n.savedAt).toDateString() === today);
   document.getElementById('todayCount').textContent = todayNotes.length;
+
+  // Show current platform
+  const platform = await getCurrentPlatform();
+  const platformSection = document.getElementById('platformSection');
+  const platformName = document.getElementById('platformName');
+  if (platform !== '未知') {
+    platformSection.style.display = 'block';
+    platformName.textContent = platform;
+  }
 
   // Show recent notes
   if (notes.length > 0) {

@@ -15,6 +15,8 @@ function detectPlatform() {
   if (host.includes('weibo.com') || host.includes('weibo.cn')) return 'weibo';
   if (host.includes('douyin.com')) return 'douyin';
   if (host.includes('zhihu.com')) return 'zhihu';
+  if (host.includes('kuaishou.com') || host.includes('gifshow.com')) return 'kuaishou';
+  if (host.includes('toutiao.com') || host.includes('toutiaocdn.com')) return 'toutiao';
   return 'unknown';
 }
 
@@ -108,6 +110,14 @@ function getNoteId() {
   }
   if (PLATFORM === 'zhihu') {
     return location.pathname.match(/\/(?:p|answer)\/(\d+)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'kuaishou') {
+    return location.pathname.match(/\/short-video\/([a-zA-Z0-9]+)/i)?.[1]
+      || location.pathname.match(/\/photo\/([a-zA-Z0-9]+)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'toutiao') {
+    return location.pathname.match(/\/article\/(\d+)/i)?.[1]
+      || location.pathname.match(/\/video\/(\d+)/i)?.[1] || '';
   }
   return '';
 }
@@ -353,6 +363,47 @@ function captureZhihuNote(id) {
   };
 }
 
+function captureKuaishouNote(id) {
+  const title = document.querySelector('[class*="title"], [class*="caption"], h1')?.textContent?.trim() || document.title;
+  const content = document.querySelector('[class*="desc"], [class*="content"]')?.textContent?.trim() || '';
+  const author = document.querySelector('[class*="author"], [class*="name"]')?.textContent?.trim() || '未知作者';
+  const video = document.querySelector('video');
+  return {
+    id: `ks_${id}`,
+    sourceUrl: location.href,
+    title: title.slice(0, 100),
+    content,
+    imageUrls: [],
+    coverUrl: video?.poster || '',
+    videoUrl: video?.src || '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: video ? 'video' : 'normal',
+  };
+}
+
+function captureToutiaoNote(id) {
+  const title = document.querySelector('.article-title, [class*="title"], h1')?.textContent?.trim() || document.title;
+  const content = document.querySelector('.article-content, [class*="content"], .tt-article-content')?.textContent?.trim() || '';
+  const author = document.querySelector('.author-name, [class*="author"]')?.textContent?.trim() || '未知作者';
+  const images = Array.from(document.querySelectorAll('.article-content img, [class*="content"] img'))
+    .map(img => img.src || img.dataset.src)
+    .filter(src => src && !src.includes('avatar'));
+  const video = document.querySelector('video');
+  return {
+    id: `tt_${id}`,
+    sourceUrl: location.href,
+    title: title.slice(0, 100),
+    content: content.slice(0, 5000),
+    imageUrls: images.slice(0, 20),
+    coverUrl: images[0] || video?.poster || '',
+    videoUrl: video?.src || '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: video ? 'video' : 'normal',
+  };
+}
+
 function captureCurrentNote() {
   const id = getNoteId();
   if (!id) throw new Error('请先打开一个可收藏的页面');
@@ -369,6 +420,8 @@ function captureCurrentNote() {
   if (PLATFORM === 'zhihu') {
     return captureZhihuNote(id);
   }
+  if (PLATFORM === 'kuaishou') return captureKuaishouNote(id);
+  if (PLATFORM === 'toutiao') return captureToutiaoNote(id);
 
   const title = cachedPageData?.title
     || firstText(['#detail-title', '.note-content .title', '[class*="note"] [class*="title"]'])
@@ -424,12 +477,7 @@ function installButton() {
   button.type = 'button';
   button.draggable = true;
 
-  const labelText = PLATFORM === 'xiaohongshu' ? '拖到「Kanbox」'
-    : PLATFORM === 'bilibili' ? '收藏到 Kanbox'
-    : PLATFORM === 'weibo' ? '收藏到 Kanbox'
-    : PLATFORM === 'douyin' ? '收藏到 Kanbox'
-    : PLATFORM === 'zhihu' ? '收藏到 Kanbox'
-    : '收藏到 Kanbox';
+  const labelText = PLATFORM === 'xiaohongshu' ? '拖到「Kanbox」' : '收藏到 Kanbox';
 
   button.textContent = labelText;
   button.title = '点击或拖拽收藏当前内容到 Kanbox';

@@ -37,6 +37,7 @@ import {
   updateNote,
   getDataInfo,
   createBackup,
+  restoreFromBackup,
   checkDataIntegrity,
   repairNote,
   getAllTags,
@@ -1442,6 +1443,7 @@ export function DeskView() {
   const [integrityResult, setIntegrityResult] = useState<{ totalNotes: number; healthyNotes: number; brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }> } | null>(null);
   const [checking, setChecking] = useState(false);
   const [backing, setBacking] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   // Tag management states
   const [showTagManager, setShowTagManager] = useState(false);
@@ -1934,6 +1936,36 @@ export function DeskView() {
     } finally {
       setBacking(false);
     }
+  };
+
+  const handleRestoreBackup = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setRestoring(true);
+      try {
+        const result = await restoreFromBackup(file);
+        setNotes(result.notes);
+        setImportFeedback({
+          phase: 'complete',
+          title: '数据恢复',
+          message: `成功导入 ${result.imported} 条笔记，跳过 ${result.skipped} 条重复`,
+        });
+        dismissImportFeedback('complete', 3000);
+        const info = await getDataInfo();
+        setDataInfo(info);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '恢复失败，请检查文件格式';
+        setImportFeedback({ phase: 'error', title: '恢复失败', message });
+        dismissImportFeedback('error', 3200);
+      } finally {
+        setRestoring(false);
+      }
+    };
+    input.click();
   };
 
   const handleRepairNote = async (noteId: string) => {
