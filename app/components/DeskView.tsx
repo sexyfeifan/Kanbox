@@ -3194,10 +3194,21 @@ export function DeskView() {
                 {/* Backup */}
                 <div style={{ marginBottom: 24 }}>
                   <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>备份与恢复</h3>
-                  <button onClick={() => void handleCreateBackup()} disabled={backing} style={{ width: '100%', height: 40, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 12, fontWeight: 600, cursor: backing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    {backing ? <Loader2 size={14} className="animate-spin" /> : null}
-                    {backing ? '备份中...' : '创建备份'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => void handleCreateBackup()} disabled={backing}
+                      style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 12, fontWeight: 600, cursor: backing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      {backing ? <Loader2 size={14} className="animate-spin" /> : null}
+                      {backing ? '备份中...' : '创建备份'}
+                    </button>
+                    <button onClick={() => void handleRestoreBackup()} disabled={restoring}
+                      style={{ flex: 1, height: 40, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 12, fontWeight: 600, cursor: restoring ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      {restoring ? <Loader2 size={14} className="animate-spin" /> : null}
+                      {restoring ? '恢复中...' : '从备份恢复'}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
+                    选择 .json 备份文件恢复数据（不覆盖已有笔记）
+                  </p>
                 </div>
 
                 {/* Data Integrity */}
