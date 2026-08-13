@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.1.0-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.2.0-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,16 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据全程存在你自己的电脑上，不上传云端，不需要 AI API key。
+
+## 🆕 v0.2.0 更新
+
+- **自动定时备份** — 每日自动备份，保留最近 7 份，存储在 data/backups/
+- **实时更新** — 使用 Server-Sent Events 替代 2 秒轮询，笔记变更即时刷新
+- **虚拟列表优化** — 100+ 笔记时只渲染可见区域，大幅降低内存占用
+- **AI 摘要** — 本地文本提取摘要（无需 API key），点击笔记详情中生成
+- **抖音支持** — 浏览器扩展可收藏抖音视频和笔记
+- **知乎支持** — 浏览器扩展可收藏知乎文章和回答
+- **Bug 修复** — 修复新电脑本地服务启动失败、CI 测试失败等问题
 
 ## 🆕 v0.1.0 更新
 
@@ -88,8 +98,9 @@
 | 📋 | **粘贴链接导入** | 直接粘贴小红书笔记 URL，无需打开小红书页面 |
 | 🖱️ | **右键收藏** | 右键笔记链接或图片，一键收藏到 Kanbox |
 | ✓ | **已收藏标记** | 小红书页面上已收藏的笔记显示绿色标记 |
-| 📺 | **多平台支持** | 支持小红书、B站、微博内容收藏 |
+| 📺 | **多平台支持** | 支持小红书、B站、微博、抖音、知乎内容收藏 |
 | 🔍 | **图片文字可搜** | 调用 macOS 原生 Vision 框架做本地 OCR，中英文都认，图里的干货变成可搜索文本 |
+| 🤖 | **AI 摘要** | 本地文本提取摘要，无需 API key，一键生成笔记要点 |
 | 🎬 | **视频文稿** | 视频保存到本机，使用 macOS 离线 Speech 分段转写完整语音 |
 | 🗂️ | **自动分类** | 按标题、正文、OCR 文本和标签打分，自动分到 9 个类目 |
 | 🖼️ | **配图本地化** | 图片下载到本机，原帖删除、限流、防盗链都不影响你已存的内容 |
