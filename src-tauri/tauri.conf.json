@@ -21,7 +21,7 @@
         "height": 960,
         "minWidth": 1080,
         "minHeight": 760,
-        "maximized": true,
+        "center": true,
         "resizable": true,
         "dragDropEnabled": false,
         "hiddenTitle": true,

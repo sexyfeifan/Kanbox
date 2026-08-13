@@ -294,34 +294,49 @@ export type IntegrityResult = {
 };
 
 export async function exportNotes(): Promise<void> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     const response = await fetch(`${LOCAL_API_BASE_URL}/notes/export`, {
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(30000),
     });
+
     if (!response.ok) {
-      const errorPayload = (await response.json().catch(() => null)) as { error?: unknown } | null;
-      const message = typeof errorPayload?.error === 'string'
-        ? errorPayload.error
-        : `Export failed: ${response.status}`;
-      throw new Error(message);
+      const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(errorPayload?.error || `导出失败: ${response.status}`);
     }
-    const blob = await response.blob();
-    const contentDisposition = response.headers.get('Content-Disposition') || '';
-    const filenameMatch = contentDisposition.match(/filename="?([^";\n]+)"?/);
-    const filename = filenameMatch?.[1] || 'kanbox-export.json';
+
+    const rawText = await response.text();
+    if (!rawText || rawText.trim().length === 0) {
+      throw new Error('没有可导出的笔记');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      throw new Error('导出数据格式异常，请重试');
+    }
+
+    const notes = Array.isArray(parsed) ? parsed : (parsed as { notes?: unknown[] })?.notes;
+    if (Array.isArray(notes) && notes.length === 0) {
+      throw new Error('没有可导出的笔记');
+    }
+
+    const blob = new Blob([rawText], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kanbox-export-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  } finally {
-    clearTimeout(timeout);
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('本地服务未连接，请先启动 Kanbox');
+    }
+    throw error;
   }
 }
 

@@ -1277,16 +1277,34 @@ function SetupDialog({
                 </span>
               </div>
 
+              {/* Download button */}
+              <a
+                href="https://github.com/sexyfeifan/Kanbox/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', height: 42, borderRadius: 12,
+                  background: '#829987', color: '#fff',
+                  fontSize: 13, fontWeight: 600,
+                  textDecoration: 'none',
+                  marginBottom: 12,
+                }}
+              >
+                <ExternalLink size={14} />
+                从 GitHub 下载扩展
+              </a>
+
               {/* Installation steps */}
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#3A3840', marginBottom: 10 }}>
                   安装步骤
                 </div>
                 {[
-                  { step: 1, text: '点击下方按钮打开 Chrome 扩展页面', done: false },
-                  { step: 2, text: '开启右上角「开发者模式」', done: false },
-                  { step: 3, text: '点击「加载已解压的扩展程序」', done: false },
-                  { step: 4, text: '选择弹出的 Kanbox 扩展文件夹', done: false },
+                  { step: 1, text: '从 GitHub Release 下载 browser-extension.zip' },
+                  { step: 2, text: '解压后打开 Chrome → 更多工具 → 扩展程序' },
+                  { step: 3, text: '开启右上角「开发者模式」' },
+                  { step: 4, text: '点击「加载已解压的扩展程序」，选择解压后的文件夹' },
                 ].map(({ step, text }) => (
                   <div key={step} style={{
                     display: 'flex', alignItems: 'flex-start', gap: 10,
@@ -1307,23 +1325,22 @@ function SetupDialog({
                 ))}
               </div>
 
-              {/* Action button */}
-              <button
-                onClick={onOpenExtension}
-                disabled={!info?.extension.available}
-                style={{
-                  width: '100%', height: 42, border: 'none', borderRadius: 12,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                  background: info?.extension.available ? '#829987' : '#C8C7C2',
-                  color: '#fff', fontSize: 13, fontWeight: 600,
-                  cursor: info?.extension.available ? 'pointer' : 'not-allowed',
-                  opacity: info?.extension.available ? 1 : 0.58,
-                  marginBottom: 12,
-                }}
-              >
-                <ExternalLink size={14} />
-                打开 Chrome 扩展页面
-              </button>
+              {/* Open extension folder button (if available) */}
+              {info?.extension.available && (
+                <button
+                  onClick={onOpenExtension}
+                  style={{
+                    width: '100%', height: 38, borderRadius: 10,
+                    border: '1px solid rgba(73,56,28,0.07)',
+                    background: 'rgba(253,252,250,0.78)',
+                    color: '#666159', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    marginBottom: 12,
+                  }}
+                >
+                  打开扩展文件夹
+                </button>
+              )}
 
               {/* Features list */}
               <details style={{ color: '#8B857D' }}>
@@ -1350,8 +1367,8 @@ function SetupDialog({
                     <span>右键笔记链接选择「收藏到 Kanbox」</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                    <span>✓</span>
-                    <span>已收藏的笔记会显示绿色标记</span>
+                    <span>📺</span>
+                    <span>支持小红书、B站、微博、抖音、知乎、快手、头条</span>
                   </div>
                 </div>
               </details>

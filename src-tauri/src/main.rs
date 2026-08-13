@@ -74,11 +74,28 @@ fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
     let data_dir = app.path().app_local_data_dir().map_err(|err| err.to_string())?;
     fs::create_dir_all(&data_dir).map_err(|err| err.to_string())?;
 
-    // Ensure the node binary is executable and not blocked by macOS Gatekeeper
+    // Ensure node binary exists before attempting to spawn
+    let node_path = PathBuf::from(&node_bin);
+    if !node_path.exists() {
+        eprintln!("[kanbox] node binary not found at: {node_bin}");
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(data_dir.join("local-api.stderr.log")) {
+            use std::io::Write;
+            let _ = writeln!(f, "[kanbox] node binary not found at: {node_bin}");
+        }
+        return Err(format!("node binary not found at: {node_bin}"));
+    }
+
+    // Ensure node binary has execute permissions (fixes new Mac installs)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&node_bin, fs::Permissions::from_mode(0o755));
+        if let Ok(metadata) = fs::metadata(&node_bin) {
+            let mut perms = metadata.permissions();
+            if perms.mode() & 0o111 == 0 {
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&node_bin, perms);
+            }
+        }
         let _ = Command::new("/usr/bin/xattr")
             .args(["-dr", "com.apple.quarantine", &node_bin])
             .output();
