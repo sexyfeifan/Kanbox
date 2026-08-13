@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Kanbox · Quick Import",
-  "version": "0.0.3",
-  "description": "Import Xiaohongshu notes to your local Kanbox library.",
+  "version": "0.1.0",
+  "description": "Save notes from Xiaohongshu, Bilibili, and Weibo to your local Kanbox library.",
   "permissions": [
     "activeTab",
     "contextMenus"
@@ -35,12 +35,22 @@
     {
       "matches": [
         "https://www.xiaohongshu.com/*",
-        "https://m.xiaohongshu.com/*"
+        "https://m.xiaohongshu.com/*",
+        "https://www.bilibili.com/*",
+        "https://m.bilibili.com/*",
+        "https://weibo.com/*",
+        "https://m.weibo.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "kanbox@sexyfeifan.github.io",
+      "strict_min_version": "109.0"
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

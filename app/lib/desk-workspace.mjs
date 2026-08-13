@@ -158,3 +158,20 @@ export function deleteDeskGroup(state, groupId) {
 
   return { ...state, groups, noteGroupMap };
 }
+
+export function reorderGroup(state, groupId, newIndex) {
+  const groups = Array.isArray(state?.groups) ? [...state.groups] : [];
+  const inbox = groups.find(g => g.id === 'inbox');
+  const nonInbox = groups.filter(g => g.id !== 'inbox');
+
+  const currentIndex = nonInbox.findIndex(g => g.id === groupId);
+  if (currentIndex === -1 || newIndex < 0 || newIndex >= nonInbox.length) return state;
+
+  const [moved] = nonInbox.splice(currentIndex, 1);
+  nonInbox.splice(newIndex, 0, moved);
+
+  return {
+    ...state,
+    groups: inbox ? [...nonInbox, inbox] : nonInbox,
+  };
+}

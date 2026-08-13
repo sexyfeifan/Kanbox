@@ -35,6 +35,13 @@ import {
   importSharedNote,
   openBrowserExtensionSetup,
   updateNote,
+  getDataInfo,
+  createBackup,
+  checkDataIntegrity,
+  repairNote,
+  getAllTags,
+  renameTag,
+  deleteTag,
 } from '../lib/xhs-client';
 import type { AgentClient, LocalServiceHealth, LocalSetupInfo } from '../lib/xhs-client';
 import {
@@ -65,6 +72,7 @@ import {
   getNotesInGroup,
   moveNoteToGroup,
   renameDeskGroup,
+  reorderGroup,
 } from '../lib/desk-workspace.mjs';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1384,6 +1392,21 @@ export function DeskView() {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [showSettings, setShowSettings] = useState(false);
+  const [dataInfo, setDataInfo] = useState<{ dataDirectory: string; notesCount: number; mediaSize: number; backupCount: number } | null>(null);
+  const [integrityResult, setIntegrityResult] = useState<{ totalNotes: number; healthyNotes: number; brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }> } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [backing, setBacking] = useState(false);
+
+  // Tag management states
+  const [showTagManager, setShowTagManager] = useState(false);
+  const [allTags, setAllTags] = useState<Array<{ name: string; count: number }>>([]);
+  const [editingTagName, setEditingTagName] = useState<string | null>(null);
+  const [tagEditDraft, setTagEditDraft] = useState('');
+
+  // Group drag-to-reorder states
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
 
   const toggleBatchMode = () => {
     setBatchMode(prev => !prev);
@@ -1733,6 +1756,64 @@ export function DeskView() {
     setDropTargetGroupId(null);
   };
 
+  // Tag management handlers
+  const handleOpenTagManager = async () => {
+    setShowTagManager(true);
+    try {
+      const tags = await getAllTags();
+      setAllTags(tags);
+    } catch {}
+  };
+
+  const handleRenameTag = async (oldName: string, newName: string) => {
+    if (!newName.trim() || oldName === newName) { setEditingTagName(null); return; }
+    try {
+      const result = await renameTag(oldName, newName);
+      setNotes(result.notes);
+      const tags = await getAllTags();
+      setAllTags(tags);
+      setEditingTagName(null);
+    } catch {}
+  };
+
+  const handleDeleteTag = async (tagName: string) => {
+    try {
+      const result = await deleteTag(tagName);
+      setNotes(result.notes);
+      const tags = await getAllTags();
+      setAllTags(tags);
+    } catch {}
+  };
+
+  // Group drag-to-reorder handlers
+  const handleGroupDragStart = (groupId: string) => {
+    if (groupId === 'inbox' || groupId.startsWith('auto:')) return;
+    setDraggingGroupId(groupId);
+  };
+
+  const handleGroupDragOver = (e: React.DragEvent, groupId: string) => {
+    e.preventDefault();
+    if (draggingGroupId && groupId !== draggingGroupId && !groupId.startsWith('auto:')) {
+      setDragOverGroupId(groupId);
+    }
+  };
+
+  const handleGroupDrop = (targetGroupId: string) => {
+    if (draggingGroupId && targetGroupId !== draggingGroupId) {
+      setDeskState(prev => {
+        const targetIndex = prev.groups.findIndex(g => g.id === targetGroupId);
+        return reorderGroup(prev, draggingGroupId, targetIndex) as DeskState;
+      });
+    }
+    setDraggingGroupId(null);
+    setDragOverGroupId(null);
+  };
+
+  const handleGroupDragEnd = () => {
+    setDraggingGroupId(null);
+    setDragOverGroupId(null);
+  };
+
   const handlePasteUrlSubmit = async () => {
     if (!pasteUrl.trim() || pasteLoading) return;
     setPasteLoading(true);
@@ -1772,6 +1853,62 @@ export function DeskView() {
       setImportFeedback({ phase: 'error', title: '导出失败', message });
       dismissImportFeedback('error', 3200);
     }
+  };
+
+  const handleOpenSettings = async () => {
+    setShowSettings(true);
+    try {
+      const info = await getDataInfo();
+      setDataInfo(info);
+    } catch {}
+  };
+
+  const handleCheckIntegrity = async () => {
+    setChecking(true);
+    try {
+      const result = await checkDataIntegrity();
+      setIntegrityResult(result);
+    } catch {
+      setIntegrityResult(null);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setBacking(true);
+    try {
+      await createBackup();
+      const info = await getDataInfo();
+      setDataInfo(info);
+      setImportFeedback({ phase: 'complete', title: '备份创建', message: '备份文件已保存到本地' });
+      dismissImportFeedback('complete', 2200);
+    } catch {
+      setImportFeedback({ phase: 'error', title: '备份失败', message: '请重试' });
+      dismissImportFeedback('error', 3200);
+    } finally {
+      setBacking(false);
+    }
+  };
+
+  const handleRepairNote = async (noteId: string) => {
+    try {
+      const result = await repairNote(noteId);
+      setNotes(result.notes);
+      setImportFeedback({ phase: 'complete', title: '修复完成', message: '已重新下载缺失文件' });
+      dismissImportFeedback('complete', 2200);
+      await handleCheckIntegrity();
+    } catch {
+      setImportFeedback({ phase: 'error', title: '修复失败', message: '无法重新下载文件' });
+      dismissImportFeedback('error', 3200);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
   // Keyboard shortcuts
@@ -2101,6 +2238,46 @@ export function DeskView() {
             <Download size={14} strokeWidth={1.8} />
             导出
           </motion.button>
+          <motion.button
+            whileHover={{ y: -1, scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => void handleOpenTagManager()}
+            style={{
+              height: 36, padding: '0 13px', borderRadius: 15,
+              border: '1px solid rgba(73,56,28,0.07)',
+              background: 'rgba(253,252,250,0.78)', color: '#666159',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
+              boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+            }}
+            className="titlebar-no-drag"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+              <line x1="7" y1="7" x2="7.01" y2="7"></line>
+            </svg>
+            标签
+          </motion.button>
+          <motion.button
+            whileHover={{ y: -1, scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => void handleOpenSettings()}
+            style={{
+              height: 36, padding: '0 13px', borderRadius: 15,
+              border: '1px solid rgba(73,56,28,0.07)',
+              background: 'rgba(253,252,250,0.78)', color: '#666159',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11.5, fontWeight: 550, cursor: 'pointer',
+              boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+            }}
+            className="titlebar-no-drag"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            设置
+          </motion.button>
         </div>
       </header>
 
@@ -2117,6 +2294,78 @@ export function DeskView() {
             onOpenExtension={() => void handleOpenExtensionSetup()}
             onConnectAgent={(client) => void handleConnectAgent(client)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Tag Manager Panel */}
+      <AnimatePresence>
+        {showTagManager && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setShowTagManager(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 310,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 28, background: 'rgba(73, 67, 57, 0.18)',
+              backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: 'min(440px, calc(100vw - 48px))', maxHeight: '70vh',
+                borderRadius: 24, background: 'rgba(253,252,250,0.98)',
+                border: '1px solid rgba(255,255,255,0.72)',
+                boxShadow: '0 34px 90px rgba(73,56,28,0.2)',
+                overflow: 'hidden', display: 'flex', flexDirection: 'column',
+              }}
+            >
+              <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ margin: 0, color: '#3A3840', fontFamily: '"Playfair Display", Georgia, serif', fontSize: 19, fontWeight: 600 }}>
+                  标签管理
+                </h2>
+                <button onClick={() => setShowTagManager(false)} style={{ width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(0,0,0,0.06)', background: '#F4F2ED', color: '#6F6B64', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <X size={15} />
+                </button>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+                {allTags.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: '#9A958D', fontSize: 12, padding: '24px 0' }}>暂无标签</p>
+                ) : (
+                  allTags.map(tag => (
+                    <div key={tag.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                      {editingTagName === tag.name ? (
+                        <>
+                          <input value={tagEditDraft} onChange={e => setTagEditDraft(e.target.value)}
+                            autoFocus onFocus={() => setTimeout(() => {}, 0)}
+                            onKeyDown={e => { if (e.key === 'Enter') void handleRenameTag(tag.name, tagEditDraft); if (e.key === 'Escape') setEditingTagName(null); }}
+                            onBlur={() => void handleRenameTag(tag.name, tagEditDraft)}
+                            style={{ flex: 1, height: 30, border: '1px solid rgba(130,153,135,0.3)', borderRadius: 8, padding: '0 8px', fontSize: 12, outline: 'none' }}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ flex: 1, fontSize: 12, color: '#3A3840' }}>#{tag.name}</span>
+                          <span style={{ fontSize: 10, color: '#9A958D', minWidth: 30, textAlign: 'right' }}>{tag.count}</span>
+                          <button onClick={() => { setEditingTagName(tag.name); setTagEditDraft(tag.name); }}
+                            style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'transparent', color: '#8D8881', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Pencil size={12} />
+                          </button>
+                          <button onClick={() => void handleDeleteTag(tag.name)}
+                            style={{ width: 24, height: 24, borderRadius: 6, border: 'none', background: 'transparent', color: '#B56A5B', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -2284,12 +2533,19 @@ export function DeskView() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 5 }}
                 transition={{ duration: 0.3 }}
+                draggable={kind === 'custom'}
+                onDragStart={() => handleGroupDragStart(groupId)}
+                onDragOver={(e) => handleGroupDragOver(e, groupId)}
+                onDrop={() => handleGroupDrop(groupId)}
+                onDragEnd={handleGroupDragEnd}
                 style={{
                   position: 'absolute',
                   left: x,
                   top: y,
                   transform: 'translateX(-50%)',
                   zIndex: isExpanded ? 600 : (activeCategory === null ? 400 : 100),
+                  opacity: draggingGroupId === groupId ? 0.5 : 1,
+                  outline: dragOverGroupId === groupId ? `2px dashed ${color}` : 'none',
                 }}
               >
                 <div style={{
@@ -2776,6 +3032,116 @@ export function DeskView() {
                 退出多选
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Panel */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowSettings(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 310,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 28, background: 'rgba(73, 67, 57, 0.18)',
+              backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: 'min(520px, calc(100vw - 48px))',
+                maxHeight: '80vh',
+                borderRadius: 24,
+                background: 'rgba(253,252,250,0.98)',
+                border: '1px solid rgba(255,255,255,0.72)',
+                boxShadow: '0 34px 90px rgba(73,56,28,0.2)',
+                overflow: 'hidden',
+                display: 'flex', flexDirection: 'column',
+              }}
+            >
+              {/* Header */}
+              <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ margin: 0, color: '#3A3840', fontFamily: '"Playfair Display", Georgia, serif', fontSize: 19, fontWeight: 600 }}>
+                  设置
+                </h2>
+                <button onClick={() => setShowSettings(false)} style={{ width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(0,0,0,0.06)', background: '#F4F2ED', color: '#6F6B64', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+                {/* Data Info */}
+                <div style={{ marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>数据统计</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
+                      <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo?.notesCount ?? '-'}</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>笔记总数</div>
+                    </div>
+                    <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
+                      <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo ? formatBytes(dataInfo.mediaSize) : '-'}</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>媒体文件</div>
+                    </div>
+                    <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
+                      <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo?.backupCount ?? 0}</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>备份文件</div>
+                    </div>
+                    <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
+                      <div style={{ fontSize: 11, color: '#5E5A54', wordBreak: 'break-all' }}>{dataInfo?.dataDirectory ?? '-'}</div>
+                      <div style={{ fontSize: 10, color: '#9A958D', marginTop: 4 }}>数据目录</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Backup */}
+                <div style={{ marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>备份与恢复</h3>
+                  <button onClick={() => void handleCreateBackup()} disabled={backing} style={{ width: '100%', height: 40, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 12, fontWeight: 600, cursor: backing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    {backing ? <Loader2 size={14} className="animate-spin" /> : null}
+                    {backing ? '备份中...' : '创建备份'}
+                  </button>
+                </div>
+
+                {/* Data Integrity */}
+                <div>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>数据完整性</h3>
+                  <button onClick={() => void handleCheckIntegrity()} disabled={checking} style={{ width: '100%', height: 40, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 12, fontWeight: 600, cursor: checking ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12 }}>
+                    {checking ? <Loader2 size={14} className="animate-spin" /> : null}
+                    {checking ? '检查中...' : '检查数据完整性'}
+                  </button>
+
+                  {integrityResult && (
+                    <div style={{ padding: '12px', borderRadius: 10, background: integrityResult.brokenNotes.length === 0 ? 'rgba(130,153,135,0.06)' : 'rgba(181,106,91,0.06)' }}>
+                      <div style={{ fontSize: 12, color: '#3A3840', marginBottom: 8 }}>
+                        {integrityResult.brokenNotes.length === 0
+                          ? `✓ 全部 ${integrityResult.totalNotes} 条笔记数据完整`
+                          : `${integrityResult.brokenNotes.length} 条笔记有缺失文件`}
+                      </div>
+                      {integrityResult.brokenNotes.map(note => (
+                        <div key={note.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 11, color: '#5E5A54', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.title}</div>
+                            <div style={{ fontSize: 9, color: '#B56A5B' }}>{note.missingFiles.length} 个文件缺失</div>
+                          </div>
+                          <button onClick={() => void handleRepairNote(note.id)} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(130,153,135,0.12)', color: '#4F6254', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>
+                            修复
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

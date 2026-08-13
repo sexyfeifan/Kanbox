@@ -49,6 +49,22 @@ chrome.runtime.onInstalled.addListener(() => {
       '*://*.xhsimg.com/*',
     ],
   });
+
+  // Bilibili
+  chrome.contextMenus.create({
+    id: 'kanbox-save-bilibili',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.bilibili.com/*'],
+  });
+
+  // Weibo
+  chrome.contextMenus.create({
+    id: 'kanbox-save-weibo',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.weibo.com/*', '*://*.weibo.cn/*'],
+  });
 });
 
 // Handle context menu clicks
@@ -76,6 +92,28 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }
       } catch {
         await importNoteById(noteId, url);
+      }
+    }
+  }
+
+  if (info.menuItemId === 'kanbox-save-bilibili' || info.menuItemId === 'kanbox-save-weibo') {
+    const url = info.linkUrl || info.pageUrl;
+
+    if (tab?.id) {
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          type: 'SAVE_CURRENT_NOTE',
+        });
+        if (response?.ok) {
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon-48.png',
+            title: 'Kanbox',
+            message: '内容已收藏',
+          });
+        }
+      } catch {
+        console.error('Failed to save via context menu');
       }
     }
   }

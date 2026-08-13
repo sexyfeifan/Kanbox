@@ -278,10 +278,19 @@ export async function deleteStoredNote(noteId: string): Promise<DeleteNoteResult
   };
 }
 
+export type TagInfo = { name: string; count: number };
+
 export type DataInfo = {
   dataDirectory: string;
   notesCount: number;
   mediaSize: number;
+  backupCount: number;
+};
+
+export type IntegrityResult = {
+  totalNotes: number;
+  healthyNotes: number;
+  brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }>;
 };
 
 export async function exportNotes(): Promise<void> {
@@ -317,22 +326,48 @@ export async function exportNotes(): Promise<void> {
 }
 
 export async function getDataInfo(): Promise<DataInfo> {
-  return fetchLocalApi<DataInfo>('/data/info', undefined, 8000);
+  return fetchLocalApi<DataInfo>('/data/info', undefined, 10000);
 }
 
-export async function checkDataIntegrity(): Promise<{
-  totalNotes: number;
-  healthyNotes: number;
-  brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }>;
-}> {
+export async function createBackup(): Promise<{ ok: boolean; path: string; size: number }> {
+  return fetchLocalApi('/data/backup', { method: 'POST' }, 15000);
+}
+
+export async function checkDataIntegrity(): Promise<IntegrityResult> {
   return fetchLocalApi('/data/integrity', undefined, 15000);
 }
 
 export async function repairNote(noteId: string): Promise<{ notes: Note[]; note: Note }> {
-  return fetchLocalApi(`/data/integrity/repair`, {
+  const payload = await fetchLocalApi<{ notes: RawNote[]; note: RawNote }>('/data/integrity/repair', {
     method: 'POST',
     body: JSON.stringify({ noteId }),
   }, 60000);
+  const response = normalizeRemoteNotes(payload);
+  const note = response.notes.find(n => n.id === noteId)!;
+  return { notes: response.notes, note };
+}
+
+export async function getAllTags(): Promise<TagInfo[]> {
+  const data = await fetchLocalApi<{ tags: TagInfo[] }>('/tags');
+  return data.tags || [];
+}
+
+export async function renameTag(oldName: string, newName: string): Promise<{ notes: Note[]; renamedCount: number }> {
+  const payload = await fetchLocalApi<{ notes: RawNote[]; renamedCount: number }>('/tags/rename', {
+    method: 'POST',
+    body: JSON.stringify({ oldName, newName }),
+  });
+  const response = normalizeRemoteNotes(payload);
+  return { notes: response.notes, renamedCount: payload.renamedCount };
+}
+
+export async function deleteTag(name: string): Promise<{ notes: Note[]; deletedCount: number }> {
+  const payload = await fetchLocalApi<{ notes: RawNote[]; deletedCount: number }>('/tags/delete', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+  const response = normalizeRemoteNotes(payload);
+  return { notes: response.notes, deletedCount: payload.deletedCount };
 }
 
 export function formatNumber(num: number): string {

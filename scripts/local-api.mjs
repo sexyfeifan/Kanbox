@@ -270,6 +270,50 @@ async function writeLegacyNotes(notes) {
   await rename(legacyTempFilePath, legacyNotesFilePath);
 }
 
+async function getAllTags() {
+  const notes = await readNotes();
+  const tagMap = new Map();
+  for (const note of notes) {
+    if (!Array.isArray(note.tags)) continue;
+    for (const tag of note.tags) {
+      tagMap.set(tag, (tagMap.get(tag) || 0) + 1);
+    }
+  }
+  return Array.from(tagMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+async function renameTag(oldName, newName) {
+  const notes = await readNotes();
+  let renamedCount = 0;
+  const updated = notes.map(note => {
+    if (!Array.isArray(note.tags) || !note.tags.includes(oldName)) return note;
+    renamedCount++;
+    return {
+      ...note,
+      tags: note.tags.map(t => t === oldName ? newName : t),
+    };
+  });
+  await writeNotes(updated);
+  return { notes: updated, renamedCount };
+}
+
+async function deleteTag(tagName) {
+  const notes = await readNotes();
+  let deletedCount = 0;
+  const updated = notes.map(note => {
+    if (!Array.isArray(note.tags) || !note.tags.includes(tagName)) return note;
+    deletedCount++;
+    return {
+      ...note,
+      tags: note.tags.filter(t => t !== tagName),
+    };
+  });
+  await writeNotes(updated);
+  return { notes: updated, deletedCount };
+}
+
 async function readRequestBody(request) {
   const chunks = [];
   let totalBytes = 0;
@@ -397,6 +441,51 @@ async function buildDataInfo() {
     dataDirectory,
     notesCount: notes.length,
     mediaSize,
+  };
+}
+
+async function createBackup() {
+  const notes = await readNotes();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const backupDir = path.join(dataDirectory, 'backups');
+  await mkdir(backupDir, { recursive: true });
+  const backupPath = path.join(backupDir, `backup-${timestamp}.json`);
+  await writeFile(backupPath, JSON.stringify({
+    version: '0.0.3',
+    exportedAt: new Date().toISOString(),
+    notes
+  }, null, 2), 'utf8');
+  const stats = await stat(backupPath);
+  return { ok: true, path: backupPath, size: stats.size };
+}
+
+async function getDataInfo() {
+  const notes = await readNotes();
+  let mediaSize = 0;
+  try {
+    const mediaFiles = await readdir(mediaDirectory).catch(() => []);
+    for (const dir of mediaFiles) {
+      const dirPath = path.join(mediaDirectory, dir);
+      const files = await readdir(dirPath).catch(() => []);
+      for (const file of files) {
+        const fileStat = await stat(path.join(dirPath, file)).catch(() => null);
+        if (fileStat) mediaSize += fileStat.size;
+      }
+    }
+  } catch {}
+
+  let backupCount = 0;
+  try {
+    const backupDir = path.join(dataDirectory, 'backups');
+    const backups = await readdir(backupDir).catch(() => []);
+    backupCount = backups.filter(f => f.endsWith('.json')).length;
+  } catch {}
+
+  return {
+    dataDirectory,
+    notesCount: notes.length,
+    mediaSize,
+    backupCount,
   };
 }
 
@@ -739,7 +828,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/data/info') {
-      sendJson(request, response, 200, await buildDataInfo());
+      sendJson(request, response, 200, await getDataInfo());
       return;
     }
 
@@ -759,6 +848,30 @@ const server = createServer(async (request, response) => {
         return;
       }
       sendJson(request, response, 200, result);
+      return;
+    }
+
+    // Tags
+    if (request.method === 'GET' && url.pathname === '/tags') {
+      sendJson(request, response, 200, { tags: await getAllTags() });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/tags/rename') {
+      const body = await readRequestBody(request);
+      sendJson(request, response, 200, await queueMutation(() => renameTag(body.oldName, body.newName)));
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/tags/delete') {
+      const body = await readRequestBody(request);
+      sendJson(request, response, 200, await queueMutation(() => deleteTag(body.name)));
+      return;
+    }
+
+    // Backup
+    if (request.method === 'POST' && url.pathname === '/data/backup') {
+      sendJson(request, response, 200, await createBackup());
       return;
     }
 

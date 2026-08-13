@@ -7,6 +7,17 @@ let cachedPageData = null;
 let requestedNoteId = '';
 let savedNoteIds = new Set();
 
+// Platform detection
+function detectPlatform() {
+  const host = location.hostname;
+  if (host.includes('xiaohongshu.com') || host.includes('xhslink.com')) return 'xiaohongshu';
+  if (host.includes('bilibili.com')) return 'bilibili';
+  if (host.includes('weibo.com') || host.includes('weibo.cn')) return 'weibo';
+  return 'unknown';
+}
+
+const PLATFORM = detectPlatform();
+
 async function checkAndMarkSavedNotes() {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'GET_SAVED_IDS' });
@@ -77,7 +88,19 @@ checkAndMarkSavedNotes();
 setInterval(checkAndMarkSavedNotes, 30000); // Check every 30 seconds
 
 function getNoteId() {
-  return location.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1] || '';
+  if (PLATFORM === 'xiaohongshu') {
+    return location.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'bilibili') {
+    // Bilibili note/video ID from URL
+    return location.pathname.match(/^\/(?:video|read|opus)\/(?:av|BV|cv)?([a-zA-Z0-9]+)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'weibo') {
+    // Weibo post ID
+    return location.pathname.match(/^\/\d+\/([a-zA-Z0-9]+)/i)?.[1]
+      || location.pathname.match(/^\/detail\/([a-zA-Z0-9]+)/i)?.[1] || '';
+  }
+  return '';
 }
 
 function noteCardFromDragTarget(target) {
@@ -238,9 +261,59 @@ function collectTags() {
   return Array.from(tags).slice(0, 20);
 }
 
+function captureBilibiliNote(id) {
+  const title = document.querySelector('.video-title, h1, [class*="title"]')?.textContent?.trim() || document.title;
+  const content = document.querySelector('.desc-info-text, .basic-desc-info, [class*="desc"]')?.textContent?.trim() || '';
+  const author = document.querySelector('.up-name, [class*="author"]')?.textContent?.trim() || '未知作者';
+  const coverUrl = document.querySelector('meta[property="og:image"]')?.content
+    || document.querySelector('.pic-cover img, video')?.poster || '';
+
+  return {
+    id: `bili_${id}`,
+    sourceUrl: location.href,
+    title,
+    content,
+    imageUrls: coverUrl ? [coverUrl] : [],
+    coverUrl,
+    videoUrl: '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: 'normal',
+  };
+}
+
+function captureWeiboNote(id) {
+  const title = document.querySelector('.weibo-text, [class*="content"]')?.textContent?.trim()?.slice(0, 100) || document.title;
+  const content = document.querySelector('.weibo-text, [class*="content"]')?.textContent?.trim() || '';
+  const author = document.querySelector('.name, [class*="author"]')?.textContent?.trim() || '未知作者';
+  const images = Array.from(document.querySelectorAll('.weibo-media img, [class*="pic"] img'))
+    .map(img => img.src)
+    .filter(src => src && !src.includes('avatar'));
+
+  return {
+    id: `weibo_${id}`,
+    sourceUrl: location.href,
+    title: title.slice(0, 100),
+    content,
+    imageUrls: images.slice(0, 9),
+    coverUrl: images[0] || '',
+    videoUrl: '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: 'normal',
+  };
+}
+
 function captureCurrentNote() {
   const id = getNoteId();
-  if (!id) throw new Error('请先打开一条小红书笔记详情');
+  if (!id) throw new Error('请先打开一个可收藏的页面');
+
+  if (PLATFORM === 'bilibili') {
+    return captureBilibiliNote(id);
+  }
+  if (PLATFORM === 'weibo') {
+    return captureWeiboNote(id);
+  }
 
   const title = cachedPageData?.title
     || firstText(['#detail-title', '.note-content .title', '[class*="note"] [class*="title"]'])
@@ -295,8 +368,14 @@ function installButton() {
   button.id = BUTTON_ID;
   button.type = 'button';
   button.draggable = true;
-  button.textContent = '拖到「Kanbox」';
-  button.title = '拖到Kanbox，或点击直接收藏当前笔记';
+
+  const labelText = PLATFORM === 'xiaohongshu' ? '拖到「Kanbox」'
+    : PLATFORM === 'bilibili' ? '收藏到 Kanbox'
+    : PLATFORM === 'weibo' ? '收藏到 Kanbox'
+    : '收藏到 Kanbox';
+
+  button.textContent = labelText;
+  button.title = '点击或拖拽收藏当前内容到 Kanbox';
   Object.assign(button.style, {
     position: 'fixed',
     right: '24px',
@@ -347,7 +426,10 @@ function installButton() {
       } else {
         setButtonState(button, response.created ? 'Saved ✓' : 'Updated ✓', '#6E9478');
       }
-      setTimeout(() => setButtonState(button, '拖到「Kanbox」', '#829987'), 2200);
+      setTimeout(() => {
+        const resetLabel = PLATFORM === 'xiaohongshu' ? '拖到「Kanbox」' : '收藏到 Kanbox';
+        setButtonState(button, resetLabel, '#829987');
+      }, 2200);
     });
   });
 
