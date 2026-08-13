@@ -99,6 +99,106 @@ const LANGUAGES = {
     onboardingNext: 'Next',
     onboardingDone: 'Get Started',
   },
+  'ja': {
+    appName: 'Kanbox',
+    subtitle: (count) => `${count} 件のノート`,
+    search: '検索',
+    all: 'すべて',
+    newest: '最新',
+    oldest: '古い順',
+    title: 'タイトル',
+    newGroup: '新しいグループ',
+    pasteLink: 'リンクを貼り付け',
+    settings: '設定',
+    tags: 'タグ',
+    plugin: 'プラグイン',
+    export: 'エクスポート',
+    dragToSave: 'ドロップして保存',
+    saved: '保存済み',
+    processing: '処理中…',
+    error: 'エラー',
+    delete: '削除',
+    confirmDelete: '削除確認',
+    cancel: 'キャンセル',
+    rename: '名前変更',
+    noResults: '結果が見つかりません',
+    emptyState: 'ノートをここにドラッグ',
+    emptyHint: 'ドロップすると画像を保存、テキスト認識、グループ整理',
+    viewOriginal: 'オリジナル表示',
+    aiSummary: 'AI要約',
+    imageText: '画像テキスト',
+    videoTranscript: 'ビデオ書き起こし',
+    noteContent: 'ノート内容',
+    dataStats: 'データ統計',
+    totalNotes: 'ノート総数',
+    mediaFiles: 'メディアファイル',
+    backups: 'バックアップ',
+    dataDir: 'データディレクトリ',
+    backupRestore: 'バックアップと復元',
+    createBackup: 'バックアップ作成',
+    restoreBackup: '復元',
+    integrity: 'データ整合性',
+    checkIntegrity: '整合性チェック',
+    tagManager: 'タグ管理',
+    noTags: 'タグなし',
+    onboardingTitle: 'Kanboxへようこそ',
+    onboardingStep1: 'Chrome拡張機能をインストール',
+    onboardingStep2: '小紅書或其他のプラットフォームを開く',
+    onboardingStep3: 'ドラッグまたはクリックしてノートを保存',
+    onboardingSkip: 'スキップ',
+    onboardingNext: '次へ',
+    onboardingDone: 'はじめる',
+  },
+  'zh-TW': {
+    appName: 'Kanbox',
+    subtitle: (count) => `${count} 則筆記`,
+    search: '搜尋',
+    all: '全部',
+    newest: '最新',
+    oldest: '最舊',
+    title: '標題',
+    newGroup: '新建分組',
+    pasteLink: '貼上連結',
+    settings: '設定',
+    tags: '標籤',
+    plugin: '外掛',
+    export: '匯出',
+    dragToSave: '放開收錄',
+    saved: '已收錄',
+    processing: '處理中…',
+    error: '錯誤',
+    delete: '刪除',
+    confirmDelete: '確認刪除',
+    cancel: '取消',
+    rename: '重新命名',
+    noResults: '找不到相關收藏',
+    emptyState: '把筆記拖進來',
+    emptyHint: '放開後會自動儲存圖片、辨識文字、分析並放入卡片分組',
+    viewOriginal: '檢視原始貼文',
+    aiSummary: 'AI摘要',
+    imageText: '圖片文字',
+    videoTranscript: '影片逐字稿',
+    noteContent: '筆記內文',
+    dataStats: '資料統計',
+    totalNotes: '筆記總數',
+    mediaFiles: '媒體檔案',
+    backups: '備份檔案',
+    dataDir: '資料目錄',
+    backupRestore: '備份與還原',
+    createBackup: '建立備份',
+    restoreBackup: '從備份還原',
+    integrity: '資料完整性',
+    checkIntegrity: '檢查資料完整性',
+    tagManager: '標籤管理',
+    noTags: '暫無標籤',
+    onboardingTitle: '歡迎使用 Kanbox',
+    onboardingStep1: '安裝 Chrome 擴充功能',
+    onboardingStep2: '開啟小紅書或其他平台',
+    onboardingStep3: '拖曳或點擊收藏筆記',
+    onboardingSkip: '跳過',
+    onboardingNext: '下一步',
+    onboardingDone: '開始使用',
+  },
 };
 
 let currentLang = typeof window !== 'undefined'
@@ -106,7 +206,10 @@ let currentLang = typeof window !== 'undefined'
   : 'zh-CN';
 
 if (!LANGUAGES[currentLang]) {
-  currentLang = currentLang.startsWith('en') ? 'en' : 'zh-CN';
+  if (currentLang.startsWith('en')) currentLang = 'en';
+  else if (currentLang.startsWith('ja')) currentLang = 'ja';
+  else if (currentLang.startsWith('zh-TW') || currentLang.startsWith('zh-Hant')) currentLang = 'zh-TW';
+  else currentLang = 'zh-CN';
 }
 
 export function t(key) {
@@ -129,8 +232,14 @@ export function getLanguage() {
 }
 
 export function getAvailableLanguages() {
+  const names = {
+    'zh-CN': '简体中文',
+    'en': 'English',
+    'ja': '日本語',
+    'zh-TW': '繁體中文',
+  };
   return Object.keys(LANGUAGES).map(code => ({
     code,
-    name: code === 'zh-CN' ? '中文' : 'English',
+    name: names[code] || code,
   }));
 }
