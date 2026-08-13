@@ -42,6 +42,7 @@ import {
   getAllTags,
   renameTag,
   deleteTag,
+  getNoteSummary,
 } from '../lib/xhs-client';
 import type { AgentClient, LocalServiceHealth, LocalSetupInfo } from '../lib/xhs-client';
 import {
@@ -286,6 +287,8 @@ function ExpandedCard({
   const [addingTag, setAddingTag] = useState(false);
   const [newTagDraft, setNewTagDraft] = useState('');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [summary, setSummary] = useState('');
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -896,6 +899,46 @@ function ExpandedCard({
             </div>
           )}
 
+          {readerTab === 'note' && (
+            <div style={{ marginTop: 20, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 16 }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (summary) { setSummary(''); return; }
+                  setSummaryLoading(true);
+                  try {
+                    const s = await getNoteSummary(note.id);
+                    setSummary(s);
+                  } catch {} finally { setSummaryLoading(false); }
+                }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
+                  color: '#666159', fontSize: 12, fontWeight: 600,
+                }}>
+                <span>AI 摘要</span>
+                <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
+                  {summaryLoading ? '生成中...' : summary ? '收起' : '自动生成'}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {summary && (
+                  <motion.p
+                    initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    style={{
+                      margin: '12px 0 0', overflow: 'hidden', whiteSpace: 'pre-wrap',
+                      color: '#5E5A54', fontSize: 12.5, lineHeight: 1.8,
+                      padding: '10px 12px', borderRadius: 10,
+                      background: 'rgba(130,153,135,0.06)', border: '1px solid rgba(130,153,135,0.1)',
+                    }}>
+                    {summary}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
           {note.mediaStatus === 'partial' && (
             <p style={{ marginTop: 16, fontSize: 10.5, color: '#B56A5B', lineHeight: 1.5 }}>
               {note.mediaError || '部分图片或文字未能完整保存。'}
@@ -1366,8 +1409,10 @@ export function DeskView() {
   const { state, dispatch } = useApp();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const [deskState, setDeskState] = useState<DeskState>({ groups: [], noteGroupMap: {}, knownNoteIds: [] });
+  const [scrollY, setScrollY] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Note | null>(null);
   const [dims, setDims] = useState({ w: 1200, h: 800 });
@@ -2416,7 +2461,13 @@ export function DeskView() {
       )}
 
       {/* ── Desk canvas ── */}
-      <div style={{
+      <div
+        ref={canvasRef}
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          setScrollY(target.scrollTop);
+        }}
+        style={{
         position: 'relative',
         width: '100%',
         height: isEmpty || hasNoSearchResults ? 'calc(100vh - 98px)' : containerH,
@@ -2756,13 +2807,19 @@ export function DeskView() {
           if (!pos) return null;
           const noteGroupId = deskState.noteGroupMap?.[note.id] || 'inbox';
           const isDimmed = activeCategory !== null && noteGroupId !== activeCategory;
+
+          // Virtual rendering: skip cards far outside viewport
+          const viewTop = scrollY - 200;
+          const viewBottom = scrollY + dims.h + 200;
+          if (pos.y < viewTop || pos.y > viewBottom) return null;
+
           return (
             <DeskCard
               key={note.id}
               note={note}
               pos={pos}
               isDimmed={isDimmed}
-              lightweight={lightweightCanvas}
+              lightweight={lightweightCanvas || visibleNotes.length > 30}
               onClick={() => setExpanded(note)}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}

@@ -65,6 +65,11 @@ async function ensureNodeRuntime() {
 }
 
 await ensureNodeRuntime();
+// Ad-hoc codesign the bundled Node runtime so macOS Gatekeeper allows execution
+await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', nodeRuntimePath], {
+  timeout: 30_000,
+  maxBuffer: 1024 * 1024,
+});
 await execFileAsync('/usr/bin/xcrun', [
   'swiftc',
   '-O',

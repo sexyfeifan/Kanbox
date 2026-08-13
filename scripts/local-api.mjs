@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 
 import { inferCategoryFromNote } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
+import { summarizeNote } from './lib/text-summary.mjs';
 import { localizeNoteMedia } from './lib/media-import.mjs';
 import { localizeNoteVideo, reanalyzeStoredNoteVideo } from './lib/video-import.mjs';
 import { resolveAnonymousNote } from './lib/anonymous-note-resolver.mjs';
@@ -45,6 +46,18 @@ const coverCacheDirectories = process.platform === 'darwin'
     ]
   : [];
 let mutationQueue = Promise.resolve();
+const sseClients = new Set();
+
+function broadcastUpdate(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(data);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
 
 function firstExistingPath(candidates) {
   return candidates.find((candidate) => existsSync(candidate)) || null;
@@ -459,6 +472,46 @@ async function createBackup() {
   return { ok: true, path: backupPath, size: stats.size };
 }
 
+let autoBackupTimer = null;
+
+async function runAutoBackup() {
+  try {
+    const notes = await readNotes();
+    if (notes.length === 0) return;
+
+    const backupDir = path.join(dataDirectory, 'backups');
+    await mkdir(backupDir, { recursive: true });
+
+    // Create backup with date in filename
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const backupPath = path.join(backupDir, `auto-backup-${dateStr}.json`);
+
+    // Don't overwrite if already exists today
+    if (existsSync(backupPath)) return;
+
+    await writeFile(backupPath, JSON.stringify({
+      version: '0.2.0',
+      type: 'auto',
+      exportedAt: now.toISOString(),
+      notes,
+    }, null, 2), 'utf8');
+
+    console.log(`Auto-backup created: ${backupPath}`);
+
+    // Clean up old auto-backups (keep last 7)
+    const files = (await readdir(backupDir))
+      .filter(f => f.startsWith('auto-backup-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    for (const old of files.slice(7)) {
+      await rm(path.join(backupDir, old), { force: true });
+    }
+  } catch (error) {
+    console.error('Auto-backup failed:', error.message);
+  }
+}
+
 async function getDataInfo() {
   const notes = await readNotes();
   let mediaSize = 0;
@@ -544,6 +597,7 @@ async function importNote(body = {}) {
   const existingNotes = await readNotes();
   const merged = mergeImportedNote(existingNotes, note);
   await writeNotes(merged.notes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
   return {
     notes: merged.notes,
@@ -566,6 +620,7 @@ async function deleteNote(noteId) {
 
   await writeNotes(removed.notes);
   await rm(path.join(mediaDirectory, noteId), { recursive: true, force: true });
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
   return {
     notes: removed.notes,
@@ -594,6 +649,7 @@ async function updateNote(noteId, updates = {}) {
   const updatedNotes = [...existingNotes];
   updatedNotes[noteIndex] = updated;
   await writeNotes(updatedNotes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
   return {
     notes: updatedNotes,
@@ -632,6 +688,7 @@ async function reanalyzeNoteVideo(noteId) {
   const updatedNotes = [...notes];
   updatedNotes[noteIndex] = updatedNote;
   await writeNotes(updatedNotes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return {
     notes: updatedNotes,
     note: updatedNote,
@@ -727,6 +784,19 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
 
   try {
+    if (request.method === 'GET' && url.pathname === '/events') {
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      response.write('data: {"type":"connected"}\n\n');
+      sseClients.add(response);
+      request.on('close', () => sseClients.delete(response));
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/health') {
       sendJson(request, response, 200, {
         ok: true,
@@ -788,6 +858,19 @@ const server = createServer(async (request, response) => {
         return;
       }
       sendJson(request, response, 200, result);
+      return;
+    }
+
+    const summaryNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/summary$/i);
+    if (request.method === 'GET' && summaryNoteMatch) {
+      const notes = await readNotes();
+      const note = notes.find((n) => n.id === summaryNoteMatch[1].toLowerCase());
+      if (!note) {
+        sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
+        return;
+      }
+      const summary = summarizeNote(note);
+      sendJson(request, response, 200, { ok: true, summary });
       return;
     }
 
@@ -900,6 +983,9 @@ async function startServer() {
     if (recovered.recoveredCount > 0) {
       console.log(`recovered ${recovered.recoveredCount} cached note covers`);
     }
+    runAutoBackup();
+    // Run auto-backup every 24 hours
+    autoBackupTimer = setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
   });
 }
 

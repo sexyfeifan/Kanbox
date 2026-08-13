@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { DeskView } from './components/DeskView';
 import { useApp } from './lib/store';
-import { getNotes } from './lib/xhs-client';
+import { getNotes, subscribeToUpdates } from './lib/xhs-client';
 
 export default function Home() {
   const { dispatch } = useApp();
@@ -30,11 +30,13 @@ export default function Home() {
     };
 
     void load(true);
-    const intervalId = window.setInterval(() => void load(), 10000);
+    const fallbackId = window.setInterval(() => void load(), 30000);
+    const unsubscribe = subscribeToUpdates(() => void load());
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      unsubscribe();
+      window.clearInterval(fallbackId);
     };
   }, [dispatch]); // dispatch is stable, no infinite loop
 

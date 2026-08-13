@@ -370,6 +370,15 @@ export async function deleteTag(name: string): Promise<{ notes: Note[]; deletedC
   return { notes: response.notes, deletedCount: payload.deletedCount };
 }
 
+export async function getNoteSummary(noteId: string): Promise<string> {
+  const data = await fetchLocalApi<{ ok: boolean; summary: string }>(
+    `/notes/${noteId}/summary`,
+    undefined,
+    10000,
+  );
+  return data.summary || '';
+}
+
 export function formatNumber(num: number): string {
   if (num >= 10000) return (num / 10000).toFixed(1) + 'w';
   if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
@@ -385,4 +394,13 @@ export function formatDate(date: Date): string {
   if (days < 7) return `${days}天前`;
   if (days < 30) return `${Math.floor(days / 7)}周前`;
   return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+export function subscribeToUpdates(onUpdate: () => void): () => void {
+  const eventSource = new EventSource(`${LOCAL_API_BASE_URL}/events`);
+  eventSource.onmessage = () => onUpdate();
+  eventSource.onerror = () => {
+    // Will auto-reconnect
+  };
+  return () => eventSource.close();
 }

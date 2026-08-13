@@ -13,6 +13,8 @@ function detectPlatform() {
   if (host.includes('xiaohongshu.com') || host.includes('xhslink.com')) return 'xiaohongshu';
   if (host.includes('bilibili.com')) return 'bilibili';
   if (host.includes('weibo.com') || host.includes('weibo.cn')) return 'weibo';
+  if (host.includes('douyin.com')) return 'douyin';
+  if (host.includes('zhihu.com')) return 'zhihu';
   return 'unknown';
 }
 
@@ -99,6 +101,13 @@ function getNoteId() {
     // Weibo post ID
     return location.pathname.match(/^\/\d+\/([a-zA-Z0-9]+)/i)?.[1]
       || location.pathname.match(/^\/detail\/([a-zA-Z0-9]+)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'douyin') {
+    return location.pathname.match(/\/video\/(\d+)/i)?.[1]
+      || location.pathname.match(/\/note\/(\d+)/i)?.[1] || '';
+  }
+  if (PLATFORM === 'zhihu') {
+    return location.pathname.match(/\/(?:p|answer)\/(\d+)/i)?.[1] || '';
   }
   return '';
 }
@@ -304,6 +313,46 @@ function captureWeiboNote(id) {
   };
 }
 
+function captureDouyinNote(id) {
+  const title = document.querySelector('[class*="title"], h1')?.textContent?.trim() || document.title;
+  const content = document.querySelector('[class*="desc"], [class*="content"]')?.textContent?.trim() || '';
+  const author = document.querySelector('[class*="author"], [class*="nickname"]')?.textContent?.trim() || '未知作者';
+  const video = document.querySelector('video');
+  return {
+    id: `dy_${id}`,
+    sourceUrl: location.href,
+    title: title.slice(0, 100),
+    content,
+    imageUrls: [],
+    coverUrl: video?.poster || '',
+    videoUrl: video?.src || '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: video ? 'video' : 'normal',
+  };
+}
+
+function captureZhihuNote(id) {
+  const title = document.querySelector('.Post-Title, .ContentItem-title, h1')?.textContent?.trim() || document.title;
+  const content = document.querySelector('.Post-RichText, .RichContent-inner, .AnswerItem-content')?.textContent?.trim() || '';
+  const author = document.querySelector('.AuthorInfo-name, .UserLink-link')?.textContent?.trim() || '未知作者';
+  const images = Array.from(document.querySelectorAll('.Post-RichText img, .RichContent img'))
+    .map(img => img.src)
+    .filter(src => src && !src.includes('avatar') && !src.includes('equation'));
+  return {
+    id: `zhihu_${id}`,
+    sourceUrl: location.href,
+    title: title.slice(0, 100),
+    content: content.slice(0, 5000),
+    imageUrls: images.slice(0, 20),
+    coverUrl: images[0] || '',
+    videoUrl: '',
+    author: { name: author, avatar: '', userId: '' },
+    tags: [],
+    type: 'normal',
+  };
+}
+
 function captureCurrentNote() {
   const id = getNoteId();
   if (!id) throw new Error('请先打开一个可收藏的页面');
@@ -313,6 +362,12 @@ function captureCurrentNote() {
   }
   if (PLATFORM === 'weibo') {
     return captureWeiboNote(id);
+  }
+  if (PLATFORM === 'douyin') {
+    return captureDouyinNote(id);
+  }
+  if (PLATFORM === 'zhihu') {
+    return captureZhihuNote(id);
   }
 
   const title = cachedPageData?.title
@@ -372,6 +427,8 @@ function installButton() {
   const labelText = PLATFORM === 'xiaohongshu' ? '拖到「Kanbox」'
     : PLATFORM === 'bilibili' ? '收藏到 Kanbox'
     : PLATFORM === 'weibo' ? '收藏到 Kanbox'
+    : PLATFORM === 'douyin' ? '收藏到 Kanbox'
+    : PLATFORM === 'zhihu' ? '收藏到 Kanbox'
     : '收藏到 Kanbox';
 
   button.textContent = labelText;

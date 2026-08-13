@@ -65,74 +65,84 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['link', 'page'],
     documentUrlPatterns: ['*://*.weibo.com/*', '*://*.weibo.cn/*'],
   });
+
+  // Douyin
+  chrome.contextMenus.create({
+    id: 'kanbox-save-douyin',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.douyin.com/*'],
+  });
+
+  // Zhihu
+  chrome.contextMenus.create({
+    id: 'kanbox-save-zhihu',
+    title: '收藏到 Kanbox',
+    contexts: ['link', 'page'],
+    documentUrlPatterns: ['*://*.zhihu.com/*'],
+  });
 });
 
 // Handle context menu clicks
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  let noteData = null;
+
   if (info.menuItemId === 'kanbox-save-link') {
     const url = info.linkUrl;
+    if (!url) return;
     const match = url.match(/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
     if (!match) return;
-
-    const noteId = match[1];
-
-    if (tab?.id) {
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, {
-          type: 'CAPTURE_NOTE_BY_URL',
-          url: url,
-        });
-        if (response?.ok) {
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'icons/icon-48.png',
-            title: 'Kanbox',
-            message: '笔记已收藏',
-          });
-        }
-      } catch {
-        await importNoteById(noteId, url);
-      }
-    }
-  }
-
-  if (info.menuItemId === 'kanbox-save-bilibili' || info.menuItemId === 'kanbox-save-weibo') {
-    const url = info.linkUrl || info.pageUrl;
-
-    if (tab?.id) {
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, {
-          type: 'SAVE_CURRENT_NOTE',
-        });
-        if (response?.ok) {
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'icons/icon-48.png',
-            title: 'Kanbox',
-            message: '内容已收藏',
-          });
-        }
-      } catch {
-        console.error('Failed to save via context menu');
-      }
-    }
-  }
-});
-
-async function importNoteById(noteId, sourceUrl) {
-  try {
-    await importNote({
-      id: noteId,
-      sourceUrl: sourceUrl,
+    noteData = {
+      id: match[1],
+      sourceUrl: url,
       title: '来自右键收藏',
       content: '',
       imageUrls: [],
       type: 'normal',
-    });
-  } catch (error) {
-    console.error('Failed to import:', error);
+    };
   }
-}
+
+  if (info.menuItemId === 'kanbox-save-image') {
+    const url = info.srcUrl;
+    if (!url) return;
+    noteData = {
+      id: `img_${Date.now().toString(36)}`,
+      sourceUrl: info.pageUrl || url,
+      title: '收藏的图片',
+      content: '',
+      imageUrls: [url],
+      coverUrl: url,
+      type: 'normal',
+    };
+  }
+
+  if (info.menuItemId === 'kanbox-save-bilibili' || info.menuItemId === 'kanbox-save-weibo' || info.menuItemId === 'kanbox-save-douyin' || info.menuItemId === 'kanbox-save-zhihu') {
+    const url = info.linkUrl || info.pageUrl;
+    if (!url) return;
+    // Extract a simple ID from the URL
+    const biliMatch = url.match(/bilibili\.com\/(?:video|read|opus)\/(?:av|BV|cv)?([a-zA-Z0-9]+)/i);
+    const weiboMatch = url.match(/weibo\.com\/\d+\/([a-zA-Z0-9]+)/i);
+    const douyinMatch = url.match(/douyin\.com\/(?:video|note)\/(\d+)/i);
+    const zhihuMatch = url.match(/zhihu\.com\/(?:p|answer)\/(\d+)/i);
+    const id = biliMatch?.[1] ? `bili_${biliMatch[1]}` : weiboMatch?.[1] ? `weibo_${weiboMatch[1]}` : douyinMatch?.[1] ? `dy_${douyinMatch[1]}` : zhihuMatch?.[1] ? `zhihu_${zhihuMatch[1]}` : `link_${Date.now().toString(36)}`;
+    noteData = {
+      id,
+      sourceUrl: url,
+      title: '来自右键收藏',
+      content: '',
+      imageUrls: [],
+      type: 'normal',
+    };
+  }
+
+  if (noteData) {
+    try {
+      await importNote(noteData);
+    } catch (error) {
+      console.error('Context menu import failed:', error);
+    }
+  }
+});
 
 // Handle messages from content script and popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

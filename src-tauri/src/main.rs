@@ -70,8 +70,19 @@ fn resolve_node_binary(app: &tauri::App) -> String {
 
 fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
     let script_path = resolve_local_api_script(app)?;
+    let node_bin = resolve_node_binary(app);
     let data_dir = app.path().app_local_data_dir().map_err(|err| err.to_string())?;
     fs::create_dir_all(&data_dir).map_err(|err| err.to_string())?;
+
+    // Ensure the node binary is executable and not blocked by macOS Gatekeeper
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&node_bin, fs::Permissions::from_mode(0o755));
+        let _ = Command::new("/usr/bin/xattr")
+            .args(["-dr", "com.apple.quarantine", &node_bin])
+            .output();
+    }
 
     let stdout_log = OpenOptions::new()
         .create(true)
@@ -84,7 +95,7 @@ fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
         .open(data_dir.join("local-api.stderr.log"))
         .map_err(|err| err.to_string())?;
 
-    let child = Command::new(resolve_node_binary(app))
+    let child = Command::new(&node_bin)
         .arg(script_path)
         .env("LOCAL_API_PORT", LOCAL_API_PORT)
         .env("LOCAL_APP_DATA_DIR", &data_dir)
