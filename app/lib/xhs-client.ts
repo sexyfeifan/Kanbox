@@ -325,6 +325,14 @@ export async function exportNotes(): Promise<void> {
   }
 }
 
+export function exportNotesMarkdown() {
+  window.open(`${LOCAL_API_BASE_URL}/notes/export/markdown`, '_blank');
+}
+
+export function exportNotesHtml() {
+  window.open(`${LOCAL_API_BASE_URL}/notes/export/html`, '_blank');
+}
+
 export async function getDataInfo(): Promise<DataInfo> {
   return fetchLocalApi<DataInfo>('/data/info', undefined, 10000);
 }

@@ -1,3 +1,5 @@
+import { pinyinMatch, fuzzyMatch } from './pinyin-search.mjs';
+
 function normalizeSearchText(value) {
   return String(value ?? '')
     .normalize('NFKC')
@@ -34,7 +36,17 @@ export function noteMatchesQuery(note, query, extraText = '') {
   if (!normalizedQuery) return true;
 
   const haystack = searchableNoteText(note, extraText);
-  return normalizedQuery.split(' ').every((token) => haystack.includes(token));
+  const tokens = normalizedQuery.split(' ');
+
+  return tokens.every((token) => {
+    // Direct substring match
+    if (haystack.includes(token)) return true;
+    // Pinyin match
+    if (pinyinMatch(haystack, token)) return true;
+    // Fuzzy match for short queries
+    if (token.length >= 2 && fuzzyMatch(haystack, token)) return true;
+    return false;
+  });
 }
 
 export function filterNotesByQuery(notes, query, getExtraText) {

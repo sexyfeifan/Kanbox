@@ -28,6 +28,8 @@ import {
   connectLocalAgent,
   deleteStoredNote,
   exportNotes,
+  exportNotesMarkdown,
+  exportNotesHtml,
   formatDate,
   getLocalServiceHealth,
   getLocalSetupInfo,
@@ -51,6 +53,7 @@ import {
   parseDraggedCardInput,
   selectDraggedNoteInput,
 } from '../lib/drag-import.mjs';
+import { t, setLanguage, getLanguage, getAvailableLanguages } from '../lib/i18n.mjs';
 import {
   CARD_H,
   CARD_IMAGE_H,
@@ -1445,6 +1448,10 @@ export function DeskView() {
   const [backing, setBacking] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
+  // Onboarding states
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+
   // Tag management states
   const [showTagManager, setShowTagManager] = useState(false);
   const [allTags, setAllTags] = useState<Array<{ name: string; count: number }>>([]);
@@ -1467,6 +1474,19 @@ export function DeskView() {
       else next.add(noteId);
       return next;
     });
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const seen = localStorage.getItem('kanbox:onboarding-seen');
+    if (!seen && notes.length === 0) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  const dismissOnboarding = () => {
+    setShowOnboarding(false);
+    localStorage.setItem('kanbox:onboarding-seen', 'true');
   };
 
   const sortNotes = useCallback((notesToSort: Note[]) => {
@@ -3193,17 +3213,23 @@ export function DeskView() {
 
                 {/* Backup */}
                 <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>备份与恢复</h3>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>导出与备份</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                     <button onClick={() => void handleCreateBackup()} disabled={backing}
-                      style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 12, fontWeight: 600, cursor: backing ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {backing ? <Loader2 size={14} className="animate-spin" /> : null}
-                      {backing ? '备份中...' : '创建备份'}
+                      style={{ height: 36, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      JSON 备份
+                    </button>
+                    <button onClick={() => exportNotesMarkdown()}
+                      style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      Markdown
+                    </button>
+                    <button onClick={() => exportNotesHtml()}
+                      style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      HTML
                     </button>
                     <button onClick={() => void handleRestoreBackup()} disabled={restoring}
-                      style={{ flex: 1, height: 40, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 12, fontWeight: 600, cursor: restoring ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {restoring ? <Loader2 size={14} className="animate-spin" /> : null}
-                      {restoring ? '恢复中...' : '从备份恢复'}
+                      style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      从备份恢复
                     </button>
                   </div>
                   <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
@@ -3240,6 +3266,80 @@ export function DeskView() {
                     </div>
                   )}
                 </div>
+
+                {/* Language */}
+                <div style={{ marginTop: 24 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>语言 / Language</h3>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {getAvailableLanguages().map(lang => (
+                      <button key={lang.code} onClick={() => setLanguage(lang.code)}
+                        style={{
+                          flex: 1, height: 36, borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                          border: getLanguage() === lang.code ? `1px solid #829987` : '1px solid rgba(0,0,0,0.06)',
+                          background: getLanguage() === lang.code ? '#829987' : 'transparent',
+                          color: getLanguage() === lang.code ? '#fff' : '#666159',
+                        }}>
+                        {lang.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Onboarding Guide */}
+      <AnimatePresence>
+        {showOnboarding && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 500,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)',
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              style={{
+                width: 420, borderRadius: 24, background: '#FDFCFA',
+                padding: '36px 32px', textAlign: 'center',
+                boxShadow: '0 40px 100px rgba(0,0,0,0.3)',
+              }}
+            >
+              <div style={{ fontSize: 28, fontWeight: 600, color: '#3A3840', marginBottom: 8, fontFamily: '"Playfair Display", Georgia, serif' }}>
+                {onboardingStep === 0 ? '欢迎使用 Kanbox' : onboardingStep === 1 ? '安装扩展' : '开始收藏'}
+              </div>
+              <p style={{ color: '#666159', fontSize: 13, lineHeight: 1.7, marginBottom: 24 }}>
+                {onboardingStep === 0
+                  ? '专治收藏夹吃灰——让你存过的笔记，这次真的找得回来。'
+                  : onboardingStep === 1
+                    ? '点击右上角「插件」按钮安装 Chrome 扩展，然后在小红书等平台拖拽或点击收藏。'
+                    : '所有数据存在你的电脑上，不上传云端。支持小红书、B站、微博、抖音、知乎、快手、头条。'}
+              </p>
+
+              {/* Step indicator */}
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: i === onboardingStep ? '#829987' : '#D2D0CB',
+                    transition: 'background 0.2s',
+                  }} />
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={dismissOnboarding}
+                  style={{ flex: 1, height: 40, borderRadius: 12, border: '1px solid rgba(0,0,0,0.06)', background: 'transparent', color: '#8C8780', fontSize: 12, cursor: 'pointer' }}>
+                  跳过
+                </button>
+                <button onClick={() => onboardingStep < 2 ? setOnboardingStep(onboardingStep + 1) : dismissOnboarding()}
+                  style={{ flex: 1, height: 40, borderRadius: 12, border: 'none', background: '#829987', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  {onboardingStep < 2 ? '下一步' : '开始使用'}
+                </button>
               </div>
             </motion.div>
           </motion.div>

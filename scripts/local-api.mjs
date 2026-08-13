@@ -447,6 +447,48 @@ async function buildNotesExport() {
   };
 }
 
+async function exportNotesMarkdown() {
+  const notes = await readNotes();
+  let md = `# Kanbox 笔记导出\n\n导出时间: ${new Date().toISOString()}\n笔记总数: ${notes.length}\n\n---\n\n`;
+
+  for (const note of notes) {
+    md += `## ${note.title || '未命名笔记'}\n\n`;
+    md += `- 作者: ${note.author?.name || '未知'}\n`;
+    md += `- 分类: ${note.category || '未分类'}\n`;
+    md += `- 保存时间: ${note.savedAt || ''}\n`;
+    md += `- 来源: ${note.sourceUrl || ''}\n`;
+    if (note.tags?.length) md += `- 标签: ${note.tags.join(', ')}\n`;
+    md += `\n`;
+    if (note.rawContent || note.content) md += `${note.rawContent || note.content}\n\n`;
+    if (note.ocrText) md += `### 图片文字\n${note.ocrText}\n\n`;
+    if (note.transcriptText) md += `### 视频文稿\n${note.transcriptText}\n\n`;
+    md += `---\n\n`;
+  }
+  return md;
+}
+
+async function exportNotesHtml() {
+  const notes = await readNotes();
+  let html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>Kanbox 笔记导出</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:800px;margin:0 auto;padding:40px;color:#333}
+h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#666;font-size:13px}
+.note{margin-bottom:40px}tags span{background:#f0f0f0;padding:2px 8px;border-radius:4px;font-size:12px;margin-right:4px}</style>
+</head><body><h1>Kanbox 笔记导出</h1><p>导出时间: ${new Date().toISOString()} | 笔记总数: ${notes.length}</p>`;
+
+  for (const note of notes) {
+    html += `<div class="note"><h2>${note.title || '未命名笔记'}</h2>`;
+    html += `<meta>作者: ${note.author?.name || '未知'} | 分类: ${note.category || '未分类'} | ${note.savedAt || ''}</meta>`;
+    if (note.sourceUrl) html += `<p><a href="${note.sourceUrl}" target="_blank">查看原帖</a></p>`;
+    if (note.tags?.length) html += `<tags>${note.tags.map(t => `<span>#${t}</span>`).join('')}</tags>`;
+    if (note.rawContent || note.content) html += `<p>${(note.rawContent || note.content).replace(/\n/g, '<br>')}</p>`;
+    if (note.ocrText) html += `<h3>图片文字</h3><p>${note.ocrText.replace(/\n/g, '<br>')}</p>`;
+    if (note.transcriptText) html += `<h3>视频文稿</h3><p>${note.transcriptText.replace(/\n/g, '<br>')}</p>`;
+    html += `</div>`;
+  }
+  html += `</body></html>`;
+  return html;
+}
+
 async function buildDataInfo() {
   const notes = await readNotes();
   const mediaSize = await getDirectorySize(mediaDirectory);
@@ -939,6 +981,28 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/notes/export/markdown') {
+      const md = await exportNotesMarkdown();
+      applyCorsHeaders(request, response);
+      response.writeHead(200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': `attachment; filename="kanbox-export-${new Date().toISOString().slice(0,10)}.md"`,
+      });
+      response.end(md);
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/notes/export/html') {
+      const html = await exportNotesHtml();
+      applyCorsHeaders(request, response);
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="kanbox-export-${new Date().toISOString().slice(0,10)}.html"`,
+      });
+      response.end(html);
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/data/info') {
       sendJson(request, response, 200, await getDataInfo());
       return;
@@ -992,7 +1056,13 @@ const server = createServer(async (request, response) => {
       let parsedBody;
       if (contentType.includes('multipart/form-data')) {
         const chunks = [];
-        for await (const chunk of request) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        let totalBytes = 0;
+        for await (const chunk of request) {
+          const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+          totalBytes += buf.length;
+          if (totalBytes > 10 * 1024 * 1024) throw new Error('备份文件过大');
+          chunks.push(buf);
+        }
         const bodyBuf = Buffer.concat(chunks);
         const boundaryMatch = contentType.match(/boundary=(.+)/i);
         if (!boundaryMatch) throw new Error('Missing multipart boundary');
