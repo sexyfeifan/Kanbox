@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.3.2-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.3.3-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据全程存在你自己的电脑上，不上传云端，不需要 AI API key。
+
+## 🆕 v0.3.3 更新
+
+- **服务连接修复** — 修复「本地服务未连接」问题，改善模块路径解析和 Node 发现
+- **窗口拖动修复** — 修复窗口不可拖动问题，优化 CSS drag 区域
+- **Agent 检测修复** — 增强 Claude Code/Codex 路径检测，支持更多安装位置
+- **GitHub 按钮修复** — 修复扩展下载按钮点击无反应问题
+- **导出功能修复** — 修复导出失败问题，添加服务健康检查
+- **设置面板优化** — 加快动画速度，异步加载数据
 
 ## 🆕 v0.3.2 更新
 
