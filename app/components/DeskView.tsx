@@ -1203,28 +1203,101 @@ function SetupDialog({
               <Loader2 size={21} className="animate-spin" />
             </div>
           ) : panel === 'extension' ? (
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 20 }}>
+              {/* Connection status */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 12px', borderRadius: 10,
+                background: info?.extension.available ? 'rgba(130,153,135,0.08)' : 'rgba(181,106,91,0.08)',
+                marginBottom: 16,
+              }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: info?.extension.available ? '#829987' : '#B56A5B',
+                }} />
+                <span style={{ fontSize: 12, color: info?.extension.available ? '#4F6254' : '#8F5146' }}>
+                  {info?.extension.available
+                    ? `扩展文件已找到 (v${info?.extension.version || '?'})`
+                    : '扩展文件未找到'}
+                </span>
+              </div>
+
+              {/* Installation steps */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3A3840', marginBottom: 10 }}>
+                  安装步骤
+                </div>
+                {[
+                  { step: 1, text: '点击下方按钮打开 Chrome 扩展页面', done: false },
+                  { step: 2, text: '开启右上角「开发者模式」', done: false },
+                  { step: 3, text: '点击「加载已解压的扩展程序」', done: false },
+                  { step: 4, text: '选择弹出的 Kanbox 扩展文件夹', done: false },
+                ].map(({ step, text }) => (
+                  <div key={step} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '6px 0',
+                  }}>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: '50%',
+                      background: '#829987', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 10, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {step}
+                    </div>
+                    <span style={{ fontSize: 12, color: '#5E5A54', lineHeight: '20px' }}>
+                      {text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Action button */}
               <button
                 onClick={onOpenExtension}
                 disabled={!info?.extension.available}
                 style={{
-                  width: '100%', height: 46, border: 'none', borderRadius: 14,
+                  width: '100%', height: 42, border: 'none', borderRadius: 12,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                   background: info?.extension.available ? '#829987' : '#C8C7C2',
                   color: '#fff', fontSize: 13, fontWeight: 600,
                   cursor: info?.extension.available ? 'pointer' : 'not-allowed',
                   opacity: info?.extension.available ? 1 : 0.58,
+                  marginBottom: 12,
                 }}
               >
-                <ExternalLink size={15} />
-                配置 Chrome 插件
+                <ExternalLink size={14} />
+                打开 Chrome 扩展页面
               </button>
-              <details style={{ marginTop: 14, color: '#8B857D' }}>
-                <summary style={{ cursor: 'pointer', fontSize: 11.5, textAlign: 'center', listStylePosition: 'inside' }}>
-                  安装帮助
+
+              {/* Features list */}
+              <details style={{ color: '#8B857D' }}>
+                <summary style={{
+                  cursor: 'pointer', fontSize: 11, textAlign: 'center',
+                  listStylePosition: 'inside', padding: '4px 0',
+                }}>
+                  安装后可以做什么？
                 </summary>
-                <div style={{ marginTop: 11, padding: '12px 14px', borderRadius: 12, background: '#F5F3EE', fontSize: 11.5, lineHeight: 1.8 }}>
-                  打开开发者模式，然后点“加载已解压的扩展程序”，选择刚打开的文件夹。
+                <div style={{
+                  marginTop: 8, padding: '10px 12px', borderRadius: 10,
+                  background: '#F5F3EE', fontSize: 11, lineHeight: 1.7
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                    <span>🖱️</span>
+                    <span>拖拽笔记卡片到 Kanbox 窗口即可收藏</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                    <span>📋</span>
+                    <span>点击笔记详情页右下角按钮一键收藏</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                    <span>🖱️</span>
+                    <span>右键笔记链接选择「收藏到 Kanbox」</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    <span>✓</span>
+                    <span>已收藏的笔记会显示绿色标记</span>
+                  </div>
                 </div>
               </details>
             </div>

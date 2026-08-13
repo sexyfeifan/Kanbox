@@ -5,6 +5,76 @@ const PAGE_DATA_SOURCE = 'kanbox-note-page-data';
 const PAGE_DATA_REQUEST_EVENT = 'kanbox-note-capture-request';
 let cachedPageData = null;
 let requestedNoteId = '';
+let savedNoteIds = new Set();
+
+async function checkAndMarkSavedNotes() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_SAVED_IDS' });
+    if (response?.ok && Array.isArray(response.ids)) {
+      savedNoteIds = new Set(response.ids);
+      markSavedNotesOnPage();
+    }
+  } catch {
+    // Ignore errors - extension might not be ready
+  }
+}
+
+function markSavedNotesOnPage() {
+  // Remove existing marks
+  document.querySelectorAll('.kanbox-saved-mark').forEach(el => el.remove());
+
+  // Find all note links and mark saved ones
+  document.querySelectorAll('a[href*="/explore/"], a[href*="/search_result/"], a[href*="/discovery/item/"]').forEach(link => {
+    const href = link.getAttribute('href');
+    const match = href?.match(/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
+    if (!match) return;
+
+    const noteId = match[1];
+    if (!savedNoteIds.has(noteId)) return;
+
+    // Find the card container
+    const card = link.closest('section, [class*="note-item"], [class*="feed-item"], [class*="note-card"]')
+      || link.parentElement?.parentElement?.parentElement;
+    if (!card) return;
+
+    // Don't add duplicate marks
+    if (card.querySelector('.kanbox-saved-mark')) return;
+
+    // Add saved mark
+    const mark = document.createElement('div');
+    mark.className = 'kanbox-saved-mark';
+    mark.innerHTML = '✓';
+    Object.assign(mark.style, {
+      position: 'absolute',
+      top: '8px',
+      right: '8px',
+      width: '24px',
+      height: '24px',
+      borderRadius: '50%',
+      background: '#829987',
+      color: '#fff',
+      fontSize: '12px',
+      fontWeight: '700',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: '10',
+      boxShadow: '0 2px 8px rgba(130,153,135,0.4)',
+      pointerEvents: 'none',
+    });
+
+    // Make card position relative if needed
+    const position = getComputedStyle(card).position;
+    if (position === 'static') {
+      card.style.position = 'relative';
+    }
+    card.appendChild(mark);
+  });
+}
+
+// Call checkAndMarkSavedNotes periodically and on page load
+checkAndMarkSavedNotes();
+setInterval(checkAndMarkSavedNotes, 30000); // Check every 30 seconds
 
 function getNoteId() {
   return location.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1] || '';
@@ -289,6 +359,29 @@ window.addEventListener('message', (event) => {
   if (event.data?.source !== PAGE_DATA_SOURCE) return;
   if (event.data.payload?.id === getNoteId()) {
     cachedPageData = event.data.payload;
+  }
+});
+
+// Handle messages from popup and other extension pages
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'SAVE_CURRENT_NOTE') {
+    try {
+      const note = captureCurrentNote();
+      chrome.runtime.sendMessage({ type: 'IMPORT_NOTE', note }, (response) => {
+        sendResponse(response);
+      });
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : '读取失败',
+      });
+    }
+    return true;
+  }
+
+  if (message?.type === 'GET_NOTE_ID') {
+    sendResponse({ ok: true, noteId: getNoteId() });
+    return false;
   }
 });
 
