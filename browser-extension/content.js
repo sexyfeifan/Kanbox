@@ -140,9 +140,13 @@ function noteCardFromDragTarget(target) {
     const id = sourceUrl.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1];
     if (!id) return null;
 
-    // 从页面 __INITIAL_STATE__ 提取该笔记的 xsec_token。
     // 小红书 2026 起详情页必须带 xsec_token 才能匿名访问，否则 302→404。
-    const xsecToken = findXsecTokenById(id);
+    // 优先从卡片链接 href 里读（搜索结果/推荐页渲染卡片时已把 token 写进链接）；
+    // 其次从 page-data.js（MAIN world）桥接的 __INITIAL_STATE__ token map 读；
+    // 最后扫描卡片容器内所有链接，找带 token 的那个（同一张卡片可能同时存在
+    // 裸 href 的包装链接和带 token 的图片/标题链接）。
+    const hrefToken = sourceUrl.searchParams.get('xsec_token') || '';
+    const xsecToken = hrefToken || findXsecTokenById(id) || findXsecTokenInCard(link, id);
     if (xsecToken) sourceUrl.searchParams.set('xsec_token', xsecToken);
 
     const card = link.closest('section, [class*="note-item"], [class*="feed-item"], [class*="note-card"]')
@@ -164,6 +168,28 @@ function findXsecTokenById(noteId) {
   if (!noteId) return '';
   const token = xsecTokenMap[String(noteId).toLowerCase()];
   return typeof token === 'string' ? token : '';
+}
+
+// 扫描卡片容器内所有笔记链接，找带 xsec_token 的那个。搜索结果页的卡片由 XHR 渲染，
+// 其 token 只存在于卡片 <a> href 里（__INITIAL_STATE__ 里 search.feeds 为空），
+// 且同一张卡片可能同时存在裸 href 的包装链接和带 token 的图片/标题链接。
+function findXsecTokenInCard(link, noteId) {
+  const container = link.closest('section, [class*="note-item"], [class*="feed-item"], [class*="note-card"]')
+    || link.parentElement?.parentElement?.parentElement;
+  if (!container) return '';
+  for (const anchor of container.querySelectorAll('a[href*="/explore/"], a[href*="/search_result/"], a[href*="/discovery/item/"]')) {
+    try {
+      const url = new URL(anchor.getAttribute('href'), location.href);
+      const idMatch = url.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i);
+      if (idMatch && idMatch[1].toLowerCase() === String(noteId).toLowerCase()) {
+        const token = url.searchParams.get('xsec_token');
+        if (token) return token;
+      }
+    } catch {
+      // 忽略无法解析的链接
+    }
+  }
+  return '';
 }
 
 function firstText(selectors) {
