@@ -1700,13 +1700,25 @@ export function DeskView() {
     const draggedCard = parseDraggedCardInput(input);
 
     if (!canUseLocalService) {
-      setImportFeedback({
-        phase: 'error',
-        title: '本地服务未连接',
-        message: '请重新启动Kanbox后再试',
-      });
-      dismissImportFeedback('error');
-      return;
+      // 缓存状态可能是过期的（例如 App 刚启动、local-api 尚未就绪，或上一次轮询刚好超时）。
+      // 导入前做一次即时健康检查，避免误报「本地服务未连接」。
+      let freshOk = false;
+      try {
+        freshOk = (await getLocalServiceHealth()).ok;
+      } catch {
+        freshOk = false;
+      }
+      if (freshOk) {
+        setServiceHealth({ ok: true, source: 'sidecar' });
+      } else {
+        setImportFeedback({
+          phase: 'error',
+          title: '本地服务未连接',
+          message: '请确认 Kanbox 正在运行且未被最小化到其他桌面，稍等片刻后再拖入',
+        });
+        dismissImportFeedback('error');
+        return;
+      }
     }
 
     dispatch({ type: 'SET_LOADING', payload: true });

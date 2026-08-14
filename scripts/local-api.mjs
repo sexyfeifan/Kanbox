@@ -1182,6 +1182,16 @@ async function startServer() {
   });
   if (recovered.recoveredCount > 0) await writeNotes(recovered.notes);
 
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`[kanbox] 端口 ${PORT} 已被占用：可能是上一次 Kanbox 异常退出后残留的 local-api 进程仍在运行。`);
+      console.error('[kanbox] 若该进程不健康，请手动结束占用端口的进程（lsof -iTCP:' + PORT + ' -sTCP:LISTEN）后重启 Kanbox。');
+    } else {
+      console.error('[kanbox] local-api 启动失败:', error.message);
+    }
+    process.exit(1);
+  });
+
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`local-api listening on http://127.0.0.1:${PORT}`);
     console.log(`local data directory: ${dataDirectory}`);
