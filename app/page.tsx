@@ -17,7 +17,21 @@ export default function Home() {
       try {
         const notes = await getNotes();
         if (cancelled) return;
-        const signature = notes.map((note) => `${note.id}:${note.savedAt.getTime()}`).join('|');
+        const signature = notes.map((note) => [
+          note.id,
+          note.title,
+          note.category,
+          (note.tags || []).join(','),
+          note.transcriptText || '',
+          note.transcriptEngine || '',
+          note.transcriptSkipped ? '1' : '0',
+          note.transcriptStatus || '',
+          note.aiSummary || '',
+          note.aiExpansion || '',
+          note.videoStatus || '',
+          note.videoError || '',
+          note.savedAt.getTime(),
+        ].join('\u0001')).join('\u0002');
         if (signature !== notesSignatureRef.current) {
           notesSignatureRef.current = signature;
           dispatch({ type: 'SET_NOTES', payload: notes });

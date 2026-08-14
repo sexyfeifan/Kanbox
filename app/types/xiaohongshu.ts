@@ -24,6 +24,7 @@ export interface Note {
   }>;
   transcriptSkipped?: boolean;
   transcriptEngine?: 'ai' | 'local';
+  transcriptStatus?: 'pending' | 'ready' | 'error';
   aiSummary?: string;
   aiSummaryEngine?: 'ai' | 'local';
   aiExpansion?: string;

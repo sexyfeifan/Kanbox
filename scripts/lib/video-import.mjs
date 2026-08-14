@@ -135,9 +135,60 @@ function cleanTranscriptSegments(value) {
   })).filter((entry) => entry.text);
 }
 
+const TRANSITION_PREFIX = /^(但是|但|然而|可是|不过|另外|此外|而且|首先|其次|再次|接着|然后|最后|总之|所以|因此|于是|接下来|总结|其实|事实上|也就是说|换句话说|例如|比如|值得一提的是)/;
+
+/** 按句末标点切句，保留标点附在句尾。 */
+function splitTranscriptSentences(text) {
+  return text
+    .split(/(?<=[。！？；…!?;])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 根据内容对转写文本做换行/分段处理：
+ * - 按句末标点（。！？；… 等）切句；
+ * - 遇到语义转折词（但是/然而/首先/最后/总之…）另起一段；
+ * - 每段累计不超过 maxSentences 句 / maxChars 字，超了自动分段。
+ * 本地与在线大模型两种转写结果都统一走这里，让文稿自然分段可读。
+ */
+export function reflowTranscriptText(text, options = {}) {
+  const raw = String(text || '').replace(/\r\n?/g, '\n');
+  if (!raw.trim()) return '';
+  const flattened = raw
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+  const sentences = splitTranscriptSentences(flattened);
+  const maxSentences = options.maxSentences ?? 3;
+  const maxChars = options.maxChars ?? 120;
+  const paragraphs = [];
+  let current = '';
+  let currentCount = 0;
+
+  for (const sentence of sentences) {
+    const startsNew = current !== '' && (TRANSITION_PREFIX.test(sentence) || currentCount >= maxSentences);
+    if (startsNew) {
+      paragraphs.push(current.trim());
+      current = '';
+      currentCount = 0;
+    }
+    current += sentence;
+    currentCount += 1;
+    if (currentCount >= maxSentences || current.length >= maxChars) {
+      paragraphs.push(current.trim());
+      current = '';
+      currentCount = 0;
+    }
+  }
+  if (current.trim()) paragraphs.push(current.trim());
+  return paragraphs.join('\n\n');
+}
+
 export function applyVideoAnalysis(note, analysis, localVideoUrl, transcriptEngine = 'local') {
   const transcriptSegments = cleanTranscriptSegments(analysis.transcriptSegments);
-  const transcriptText = transcriptSegments.map((entry) => entry.text).join('\n\n');
+  const rawTranscript = transcriptSegments.map((entry) => entry.text).join('');
+  const transcriptText = reflowTranscriptText(rawTranscript);
   const warnings = [analysis.speechError].filter(Boolean).join('；');
   const updated = {
     ...note,
@@ -151,6 +202,8 @@ export function applyVideoAnalysis(note, analysis, localVideoUrl, transcriptEngi
   };
   delete updated.videoOcrText;
   delete updated.videoOcrSegments;
+  delete updated.transcriptSkipped;
+  delete updated.transcriptStatus;
   return updated;
 }
 
@@ -234,6 +287,20 @@ export async function localizeNoteVideo(note, options) {
       transcriptText: '',
       transcriptSegments: [],
       transcriptSkipped: true,
+      videoStatus: 'ready',
+      videoError: '',
+    };
+  }
+  if (options.deferTranscript) {
+    // 增强转写延迟到收录后的后台流水线执行：导入阶段只下载视频、标记「待转写」。
+    return {
+      ...note,
+      sourceVideoUrl,
+      videoUrl: localVideoUrl,
+      videoDuration: 0,
+      transcriptText: '',
+      transcriptSegments: [],
+      transcriptStatus: 'pending',
       videoStatus: 'ready',
       videoError: '',
     };

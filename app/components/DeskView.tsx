@@ -20,6 +20,7 @@ import {
   Play,
   Link,
   Download,
+  Sparkles,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -53,8 +54,11 @@ import {
   saveAiSettings,
   testAiConnection,
   testTranscribeConnection,
+  batchProcessAi,
+  getPipelineStatus,
+  subscribeToPipeline,
 } from '../lib/xhs-client';
-import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings } from '../lib/xhs-client';
+import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus } from '../lib/xhs-client';
 import { renderMarkdown } from '../lib/markdown';
 import {
   acceptsExternalNoteDrag,
@@ -1586,6 +1590,7 @@ export function DeskView() {
     model: 'gpt-4o-mini',
     autoTranscript: true,
     enhanceTranscript: false,
+    autoPipeline: true,
     transcribeEndpoint: '',
     transcribeApiKey: '',
     transcribeModel: '',
@@ -1598,6 +1603,12 @@ export function DeskView() {
   const [aiTranscribeTesting, setAiTranscribeTesting] = useState(false);
   const [aiTranscribeTestResult, setAiTranscribeTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [aiMessage, setAiMessage] = useState('');
+
+  // AI 后台流水线进度（自动流水线 + 手动补跑共用）
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>({
+    running: false, status: 'idle', queued: 0, doneCount: 0, totalCount: 0, currentNoteId: null, currentKind: null,
+  });
+  const [batchProcessing, setBatchProcessing] = useState(false);
 
   // Onboarding states
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1621,6 +1632,16 @@ export function DeskView() {
     const onLangChange = () => setLangVersion((v) => v + 1);
     window.addEventListener('kanbox:langchange', onLangChange);
     return () => window.removeEventListener('kanbox:langchange', onLangChange);
+  }, []);
+
+  // 订阅后台 AI 流水线实时进度（自动流水线 + 手动补跑共用；notes-changed 由 page.tsx 统一刷新）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const unsubscribe = subscribeToPipeline(
+      (status) => setPipelineStatus(status),
+      () => { /* notes 刷新交给 page.tsx 的 subscribeToUpdates */ },
+    );
+    return unsubscribe;
   }, []);
 
   const toggleBatchMode = () => {
@@ -2156,6 +2177,7 @@ export function DeskView() {
         model: settings.model,
         autoTranscript: settings.autoTranscript,
         enhanceTranscript: settings.enhanceTranscript,
+        autoPipeline: settings.autoPipeline,
         transcribeEndpoint: settings.transcribeEndpoint,
         transcribeApiKey: '',
         transcribeModel: settings.transcribeModel,
@@ -2176,6 +2198,7 @@ export function DeskView() {
         model: saved.model,
         autoTranscript: saved.autoTranscript,
         enhanceTranscript: saved.enhanceTranscript,
+        autoPipeline: saved.autoPipeline,
         transcribeEndpoint: saved.transcribeEndpoint,
         transcribeApiKey: '',
         transcribeModel: saved.transcribeModel,
@@ -2217,6 +2240,27 @@ export function DeskView() {
       setAiMessage(`${t('transcribeTestFail')}：${error instanceof Error ? error.message : ''}`);
     } finally {
       setAiTranscribeTesting(false);
+    }
+  };
+
+  const handleBatchProcess = async () => {
+    if (batchProcessing) return;
+    setBatchProcessing(true);
+    try {
+      const result = await batchProcessAi();
+      setPipelineStatus(result.status);
+      if (result.queued > 0) {
+        setImportFeedback({ phase: 'complete', title: t('aiBatchQueued'), message: `${result.queued} 条` });
+        dismissImportFeedback('complete', 2200);
+      } else {
+        setImportFeedback({ phase: 'complete', title: t('aiBatchNone'), message: t('aiBatchNone') });
+        dismissImportFeedback('complete', 2200);
+      }
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: t('aiBatchFail'), message: error instanceof Error ? error.message : '' });
+      dismissImportFeedback('error', 3600);
+    } finally {
+      setBatchProcessing(false);
     }
   };
 
@@ -2647,6 +2691,32 @@ export function DeskView() {
               <line x1="7" y1="7" x2="7.01" y2="7"></line>
             </svg>
             {t('tags')}
+          </motion.button>
+          <motion.button
+            whileHover={{ y: -1, scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => void handleBatchProcess()}
+            disabled={batchProcessing || pipelineStatus.running}
+            title={t('aiBatchProcessDesc')}
+            style={{
+              height: 36, padding: '0 13px', borderRadius: 15,
+              border: '1px solid rgba(73,56,28,0.07)',
+              background: 'rgba(253,252,250,0.78)', color: '#666159',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11.5, fontWeight: 550, cursor: batchProcessing || pipelineStatus.running ? 'default' : 'pointer',
+              boxShadow: '0 3px 13px rgba(73,56,28,0.045)',
+              opacity: batchProcessing || pipelineStatus.running ? 0.6 : 1,
+            }}
+            className="titlebar-no-drag"
+          >
+            {pipelineStatus.running ? (
+              <Loader2 size={14} strokeWidth={1.8} className="animate-spin" />
+            ) : (
+              <Sparkles size={14} strokeWidth={1.8} />
+            )}
+            {pipelineStatus.running && pipelineStatus.totalCount > 0
+              ? `${t('aiProcessingProgress')} ${pipelineStatus.doneCount}/${pipelineStatus.totalCount}`
+              : t('aiBatchProcess')}
           </motion.button>
           <motion.button
             whileHover={{ y: -1, scale: 1.02 }}
@@ -3677,6 +3747,25 @@ export function DeskView() {
                       </div>
                     )}
                   </div>
+
+                  {/* AI 自动流水线 */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '16px 0 4px' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: '#5E5A54' }}>{t('aiAutoPipeline')}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAiDraft(d => ({ ...d, autoPipeline: !d.autoPipeline }))}
+                      style={{
+                        width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative',
+                        background: aiDraft.autoPipeline ? '#829987' : '#D8D5CF', transition: 'background 0.15s',
+                      }}>
+                      <span style={{
+                        position: 'absolute', top: 2, left: aiDraft.autoPipeline ? 20 : 2,
+                        width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+                      }} />
+                    </button>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 10.5, color: '#9A958D' }}>{t('aiAutoPipelineDesc')}</p>
 
                   {/* AI 摘要 + 知识拓展 */}
                   <div style={{ paddingTop: 14, borderTop: '1px solid rgba(0,0,0,0.05)' }}>

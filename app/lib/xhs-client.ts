@@ -61,6 +61,7 @@ export type AiSettings = {
   model: string;
   autoTranscript: boolean;
   enhanceTranscript: boolean;
+  autoPipeline: boolean;
   transcribeEndpoint: string;
   transcribeApiKey: string;
   transcribeModel: string;
@@ -143,6 +144,7 @@ function normalizeNote(note: Partial<Note>): Note {
     transcriptSegments: Array.isArray(note.transcriptSegments) ? note.transcriptSegments : [],
     transcriptSkipped: note.transcriptSkipped === true,
     transcriptEngine: note.transcriptEngine === 'ai' ? 'ai' : note.transcriptEngine === 'local' ? 'local' : undefined,
+    transcriptStatus: note.transcriptStatus === 'pending' || note.transcriptStatus === 'error' ? note.transcriptStatus : undefined,
     aiSummary: typeof note.aiSummary === 'string' ? note.aiSummary : '',
     aiSummaryEngine: note.aiSummaryEngine === 'ai' ? 'ai' : note.aiSummaryEngine === 'local' ? 'local' : undefined,
     aiExpansion: typeof note.aiExpansion === 'string' ? note.aiExpansion : '',
@@ -555,6 +557,70 @@ export async function testTranscribeConnection(settings: Partial<AiSettings>): P
     body: JSON.stringify(settings),
   }, 35_000);
   return data.reply;
+}
+
+export type PipelineKind = 'transcript' | 'summary' | 'expansion';
+
+export type PipelineStatus = {
+  running: boolean;
+  status: 'idle' | 'running';
+  queued: number;
+  doneCount: number;
+  totalCount: number;
+  currentNoteId: string | null;
+  currentKind: PipelineKind | null;
+};
+
+export type BatchProcessResult = {
+  queued: number;
+  status: PipelineStatus;
+};
+
+export async function batchProcessAi(kinds?: PipelineKind[]): Promise<BatchProcessResult> {
+  return fetchLocalApi<BatchProcessResult>('/ai/batch-process', {
+    method: 'POST',
+    body: JSON.stringify({ kinds }),
+  }, 30_000);
+}
+
+export async function getPipelineStatus(): Promise<PipelineStatus> {
+  return fetchLocalApi<PipelineStatus>('/ai/pipeline', undefined, 8000);
+}
+
+/**
+ * 订阅后台 AI 流水线的实时进度（SSE）。
+ * onStatus 收到 pipeline-progress 事件，onNotesChanged 收到 notes-changed 事件（流水线更新了笔记）。
+ * 返回取消订阅函数。
+ */
+export function subscribeToPipeline(
+  onStatus: (status: PipelineStatus) => void,
+  onNotesChanged: () => void,
+): () => void {
+  const eventSource = new EventSource(`${LOCAL_API_BASE_URL}/events`);
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse((event as MessageEvent).data);
+      if (data?.type === 'pipeline-progress') {
+        onStatus({
+          running: Boolean(data.running),
+          status: data.running ? 'running' : 'idle',
+          queued: typeof data.queued === 'number' ? data.queued : 0,
+          doneCount: typeof data.doneCount === 'number' ? data.doneCount : 0,
+          totalCount: typeof data.totalCount === 'number' ? data.totalCount : 0,
+          currentNoteId: typeof data.currentNoteId === 'string' ? data.currentNoteId : null,
+          currentKind: data.currentKind ?? null,
+        });
+      } else if (data?.type === 'notes-changed') {
+        onNotesChanged();
+      }
+    } catch {
+      // 忽略无法解析的事件
+    }
+  };
+  eventSource.onerror = () => {
+    // EventSource 会自动重连
+  };
+  return () => eventSource.close();
 }
 
 export function formatNumber(num: number): string {

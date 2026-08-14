@@ -22,6 +22,7 @@ const DEFAULT_AI_SETTINGS = {
   model: 'gpt-4o-mini',
   autoTranscript: true,  // 导入视频时是否自动转写语音（本地 macOS Vision）
   enhanceTranscript: false,   // 音转文字增强：开启后用在线大模型转写（更准确）
+  autoPipeline: true,         // 素材收录后 5 秒自动执行「转写 → 摘要 → 知识拓展」流水线
   transcribeEndpoint: '',     // 音转文字接口地址（留空则复用上方 AI 摘要接口）
   transcribeApiKey: '',       // 音转文字接口密钥（留空则复用上方 AI 摘要密钥）
   transcribeModel: '',        // 音转文字模型（留空则回退 whisper-1）
@@ -104,6 +105,27 @@ export function isTranscriptEnhanceConfigured(aiSettings) {
   if (!aiSettings || aiSettings.enhanceTranscript !== true) return false;
   const resolved = resolveTranscriptSettings(aiSettings);
   return Boolean(resolved.endpoint && resolved.apiKey && resolved.model);
+}
+
+/**
+ * 计算一条笔记还有哪些 AI 任务「待处理」（用于收录后的自动流水线与手动全局补跑）。
+ * 返回子集，可能包含 'transcript' | 'summary' | 'expansion'。
+ * - transcript：视频已本地化、尚未转写，且用户没有明确关闭自动转写（transcriptSkipped）；
+ * - summary：AI 已配置且尚未生成摘要；
+ * - expansion：AI 已配置且尚未生成知识拓展。
+ */
+export function computePendingAiKinds(note, aiSettings) {
+  const pending = [];
+  const isVideo = note?.type === 'video';
+  const hasVideo = isVideo && typeof note?.videoUrl === 'string' && note.videoUrl.trim().length > 0;
+  const aiOn = isAiConfigured(aiSettings);
+
+  if (hasVideo && !note.transcriptText && !note.transcriptSkipped) {
+    pending.push('transcript');
+  }
+  if (aiOn && !note.aiSummary) pending.push('summary');
+  if (aiOn && !note.aiExpansion) pending.push('expansion');
+  return pending;
 }
 
 function normalizeTranscriptionEndpoint(endpoint) {

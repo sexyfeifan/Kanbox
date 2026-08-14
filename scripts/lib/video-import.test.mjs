@@ -8,6 +8,7 @@ import {
   isAllowedRemoteVideoUrl,
   localizeNoteVideo,
   reanalyzeStoredNoteVideo,
+  reflowTranscriptText,
 } from './video-import.mjs';
 
 test('video URL allowlist accepts Xiaohongshu CDN only', () => {
@@ -47,7 +48,7 @@ test('localizeNoteVideo stores video and offline analysis text without credentia
 
     assert.equal(note.videoStatus, 'ready');
     assert.equal(note.videoUrl, 'http://127.0.0.1:4318/media/64cb12340000000001020304/video.mp4');
-    assert.equal(note.transcriptText, '第一句文稿\n\n第二句文稿');
+    assert.equal(note.transcriptText, '第一句文稿第二句文稿');
     assert.equal(downloadInit.credentials, 'omit');
     assert.equal(Object.keys(downloadInit.headers).some((key) => key.toLowerCase() === 'cookie'), false);
     assert.equal(
@@ -108,6 +109,51 @@ test('reanalyzeStoredNoteVideo reuses the local video and removes legacy frame O
     assert.equal(note.videoUrl, `http://127.0.0.1:4318/media/${noteId}/video.mp4`);
     assert.equal('videoOcrText' in note, false);
     assert.equal('videoOcrSegments' in note, false);
+  } finally {
+    await rm(mediaDirectory, { recursive: true, force: true });
+  }
+});
+
+test('reflowTranscriptText 按句末标点与转折词分段', () => {
+  const out = reflowTranscriptText('今天天气很好。我们去了公园散步。公园里有很多人。但是后来下起了雨。于是我们回家了。');
+  const paragraphs = out.split('\n\n');
+  assert.ok(paragraphs.length >= 3, `应分多段，实际 ${paragraphs.length} 段`);
+  assert.ok(paragraphs[0].endsWith('。'));
+  // 转折词「但是」「于是」应另起一段
+  assert.ok(paragraphs.some((p) => p.startsWith('但是')));
+  assert.ok(paragraphs.some((p) => p.startsWith('于是')));
+});
+
+test('reflowTranscriptText 空文本返回空串', () => {
+  assert.equal(reflowTranscriptText(''), '');
+  assert.equal(reflowTranscriptText('   \n  '), '');
+});
+
+test('reflowTranscriptText 合并已有换行并规整空白', () => {
+  const out = reflowTranscriptText('第一句。\n\n第二句！第三句？');
+  assert.equal(out.split('\n\n').length, 1); // 3 句内为一段（上限 3 句）
+  assert.ok(!out.includes('  ')); // 无连续空格
+  assert.ok(out.includes('第一句。'));
+});
+
+test('localizeNoteVideo deferTranscript 标记待转写而不转写', async () => {
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-test-'));
+  try {
+    const note = await localizeNoteVideo({
+      id: '64cb12340000000001020304',
+      type: 'video',
+      sourceVideoUrl: 'https://sns-video-hw.xhscdn.com/a.mp4',
+    }, {
+      mediaDirectory,
+      publicBaseUrl: 'http://127.0.0.1:4318',
+      fetchImpl: async () => new Response(Buffer.from('video-bytes'), { status: 200, headers: { 'Content-Type': 'video/mp4' } }),
+      deferTranscript: true,
+      analyzer: async () => { throw new Error('不应调用本地转写'); },
+    });
+    assert.equal(note.transcriptStatus, 'pending');
+    assert.equal(note.transcriptText, '');
+    assert.equal(note.videoStatus, 'ready');
+    assert.equal(note.transcriptSkipped, undefined);
   } finally {
     await rm(mediaDirectory, { recursive: true, force: true });
   }

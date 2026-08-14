@@ -11,6 +11,7 @@ import { inferCategoryFromNote } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
 import { summarizeNote } from './lib/text-summary.mjs';
 import {
+  computePendingAiKinds,
   expandWithAi,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
@@ -716,7 +717,8 @@ async function importNote(body = {}) {
     publicBaseUrl,
   });
   const aiSettings = await loadAiSettings(dataDirectory);
-  const imported = await localizeNoteVideo(withImages, buildTranscriptOptions(aiSettings));
+  // 增强转写延迟到收录后的后台流水线：导入阶段只下载视频、不转写，让收录快速返回。
+  const imported = await localizeNoteVideo(withImages, buildTranscriptOptions(aiSettings, { defer: true }));
   const note = {
     ...imported,
     category: inferCategoryFromNote(imported),
@@ -727,6 +729,15 @@ async function importNote(body = {}) {
   const merged = mergeImportedNote(existingNotes, note);
   await writeNotes(merged.notes);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+
+  // 收录成功后 5 秒，后台流水线自动执行：音转字（若被延迟/遗漏）→ AI 摘要 → 知识拓展
+  if (aiSettings.autoPipeline !== false) {
+    const mergedNote = merged.notes.find((entry) => entry.id === note.id) || note;
+    const autoKinds = computePendingAiKinds(mergedNote, aiSettings);
+    if (autoKinds.length > 0) {
+      enqueuePipeline(note.id, autoKinds, { delayMs: AUTO_PIPELINE_DELAY_MS });
+    }
+  }
 
   return {
     notes: merged.notes,
@@ -806,16 +817,22 @@ function queueNoteDelete(noteId) {
   return queueMutation(() => deleteNote(noteId));
 }
 
-/** 根据 AI 设置构造视频转写选项（本地 / 在线大模型增强）。 */
-function buildTranscriptOptions(aiSettings) {
+/** 根据 AI 设置构造视频转写选项（本地 / 在线大模型增强）。
+ *  defer=true 时（素材收录场景）：增强转写不立即执行，标记「待转写」交给后台流水线。 */
+function buildTranscriptOptions(aiSettings, { defer = false } = {}) {
+  const enhanceTranscript = isTranscriptEnhanceConfigured(aiSettings);
   const options = {
     mediaDirectory,
     publicBaseUrl,
-    skipTranscript: aiSettings.autoTranscript === false,
-    enhanceTranscript: isTranscriptEnhanceConfigured(aiSettings),
+    skipTranscript: aiSettings.autoTranscript === false && !enhanceTranscript,
+    enhanceTranscript,
   };
-  if (options.enhanceTranscript) {
-    options.transcribeAudio = (audioPath) => transcribeWithAi(aiSettings, audioPath);
+  if (enhanceTranscript) {
+    if (defer) {
+      options.deferTranscript = true;
+    } else {
+      options.transcribeAudio = (audioPath) => transcribeWithAi(aiSettings, audioPath);
+    }
   }
   return options;
 }
@@ -840,6 +857,143 @@ async function reanalyzeNoteVideo(noteId) {
 
 function queueVideoReanalysis(noteId) {
   return queueMutation(() => reanalyzeNoteVideo(noteId));
+}
+
+// ===== 后台 AI 流水线：素材收录后 5 秒自动执行「转写 → 摘要 → 知识拓展」，并支持手动全局补跑 =====
+const AUTO_PIPELINE_DELAY_MS = 5000;
+const PIPELINE_KINDS = ['transcript', 'summary', 'expansion'];
+
+const pipeline = {
+  running: false,
+  queue: [],          // 待处理项：{ noteId, kinds }
+  doneCount: 0,
+  totalCount: 0,
+  currentNoteId: null,
+  currentKind: null,
+  errors: [],
+};
+
+function getPipelineStatus() {
+  return {
+    running: pipeline.running,
+    status: pipeline.running ? 'running' : 'idle',
+    queued: pipeline.queue.length,
+    doneCount: pipeline.doneCount,
+    totalCount: pipeline.totalCount,
+    currentNoteId: pipeline.currentNoteId,
+    currentKind: pipeline.currentKind,
+    errors: pipeline.errors.slice(-20),
+  };
+}
+
+function broadcastPipelineProgress() {
+  broadcastUpdate({ type: 'pipeline-progress', timestamp: new Date().toISOString(), ...getPipelineStatus() });
+}
+
+/** 执行单条笔记的某一类 AI 任务，写回 notes.json 并返回 { ok } 或 { error }。 */
+async function runPipelineStep(noteId, kind) {
+  const notes = await readNotes();
+  const idx = notes.findIndex((note) => note.id === noteId);
+  if (idx < 0) return { error: '笔记不存在' };
+  const note = notes[idx];
+  const aiSettings = await loadAiSettings(dataDirectory);
+  try {
+    let updatedNote = note;
+    if (kind === 'transcript') {
+      updatedNote = await reanalyzeStoredNoteVideo(note, buildTranscriptOptions(aiSettings));
+    } else if (kind === 'summary') {
+      if (isAiConfigured(aiSettings)) {
+        updatedNote = { ...note, aiSummary: await summarizeWithAi(aiSettings, note), aiSummaryEngine: 'ai' };
+      } else {
+        updatedNote = { ...note, aiSummary: summarizeNote(note), aiSummaryEngine: 'local' };
+      }
+    } else if (kind === 'expansion') {
+      if (!isAiConfigured(aiSettings)) return { error: 'AI 未配置，无法生成知识拓展' };
+      updatedNote = { ...note, aiExpansion: await expandWithAi(aiSettings, note) };
+    } else {
+      return { error: `未知任务类型：${kind}` };
+    }
+
+    // 重新读取最新笔记，避免覆盖流水线运行期间的其他改动
+    const latestNotes = await readNotes();
+    const latestIdx = latestNotes.findIndex((item) => item.id === noteId);
+    if (latestIdx >= 0) {
+      latestNotes[latestIdx] = { ...latestNotes[latestIdx], ...updatedNote };
+      await writeNotes(latestNotes);
+      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+    }
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function processPipelineItem(item) {
+  for (const kind of item.kinds) {
+    pipeline.currentKind = kind;
+    const result = await runPipelineStep(item.noteId, kind);
+    if (result?.error) {
+      pipeline.errors.push({ noteId: item.noteId, kind, error: result.error });
+      if (pipeline.errors.length > 100) pipeline.errors.shift();
+    }
+    pipeline.doneCount += 1;
+    broadcastPipelineProgress();
+  }
+}
+
+async function drainPipelineQueue() {
+  if (pipeline.running) return;
+  pipeline.running = true;
+  broadcastPipelineProgress();
+  try {
+    while (pipeline.queue.length > 0) {
+      const item = pipeline.queue.shift();
+      pipeline.currentNoteId = item.noteId;
+      await processPipelineItem(item);
+      pipeline.currentNoteId = null;
+      pipeline.currentKind = null;
+    }
+  } finally {
+    pipeline.running = false;
+    pipeline.currentNoteId = null;
+    pipeline.currentKind = null;
+    pipeline.doneCount = 0;
+    pipeline.totalCount = 0;
+    pipeline.errors = [];
+    broadcastPipelineProgress();
+  }
+}
+
+/** 把一条笔记的 AI 任务加入流水线队列（串行执行）。delayMs>0 时延迟入队。 */
+function enqueuePipeline(noteId, kinds, { delayMs = 0 } = {}) {
+  if (!Array.isArray(kinds) || kinds.length === 0) return;
+  const enqueue = () => {
+    if (pipeline.queue.some((item) => item.noteId === noteId)) return;
+    pipeline.queue.push({ noteId, kinds });
+    pipeline.totalCount += kinds.length;
+    broadcastPipelineProgress();
+    void drainPipelineQueue();
+  };
+  if (delayMs > 0) {
+    setTimeout(enqueue, delayMs);
+  } else {
+    enqueue();
+  }
+}
+
+/** 扫描全部笔记，找出待处理项，加入流水线队列。返回本次排队的项。 */
+async function enqueuePendingNotes(kinds) {
+  const aiSettings = await loadAiSettings(dataDirectory);
+  const notes = await readNotes();
+  const queued = [];
+  for (const note of notes) {
+    const pending = computePendingAiKinds(note, aiSettings).filter((kind) => kinds.includes(kind));
+    if (pending.length > 0) {
+      queued.push({ noteId: note.id, kinds: pending });
+      enqueuePipeline(note.id, pending);
+    }
+  }
+  return queued;
 }
 
 async function sendMediaFile(request, response, pathname) {
@@ -1117,6 +1271,22 @@ const server = createServer(async (request, response) => {
       }
       const reply = await testTranscription(candidate);
       sendJson(request, response, 200, { ok: true, reply });
+      return;
+    }
+
+    // 手动全局补跑：把还没执行 / 遗漏未执行到位的转写·摘要·知识拓展加入后台流水线
+    if (request.method === 'POST' && url.pathname === '/ai/batch-process') {
+      const body = await readRequestBody(request);
+      const requested = Array.isArray(body?.kinds) && body.kinds.length > 0
+        ? body.kinds.filter((kind) => PIPELINE_KINDS.includes(kind))
+        : PIPELINE_KINDS;
+      const queued = await enqueuePendingNotes(requested);
+      sendJson(request, response, 200, { ok: true, queued: queued.length, items: queued, status: getPipelineStatus() });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/ai/pipeline') {
+      sendJson(request, response, 200, { ok: true, ...getPipelineStatus() });
       return;
     }
 

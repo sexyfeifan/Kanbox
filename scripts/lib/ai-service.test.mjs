@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   buildNoteText,
+  computePendingAiKinds,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
@@ -139,4 +140,17 @@ test('publicAiSettings 同时标记转写密钥', () => {
   assert.equal(out.transcribeApiKey, 'tk');
   assert.equal(out.apiKeySet, true);
   assert.equal(out.transcribeApiKeySet, true);
+});
+
+test('computePendingAiKinds 识别待处理的转写/摘要/拓展', () => {
+  const aiOn = { enabled: true, endpoint: 'https://x/v1', apiKey: 'k', model: 'm' };
+  const aiOff = { enabled: false };
+  const video = (extra) => ({ type: 'video', videoUrl: 'http://127.0.0.1/media/x/video.mp4', ...extra });
+
+  assert.deepEqual(computePendingAiKinds(video({}), aiOn), ['transcript', 'summary', 'expansion']);
+  assert.deepEqual(computePendingAiKinds(video({ transcriptText: '已有', aiSummary: '有', aiExpansion: '有' }), aiOn), []);
+  assert.deepEqual(computePendingAiKinds(video({ transcriptText: '', transcriptSkipped: true }), aiOn), ['summary', 'expansion']);
+  assert.deepEqual(computePendingAiKinds(video({}), aiOff), ['transcript']);
+  assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOn), ['summary', 'expansion']);
+  assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOff), []);
 });
