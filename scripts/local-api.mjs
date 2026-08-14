@@ -10,6 +10,15 @@ import { promisify } from 'node:util';
 import { inferCategoryFromNote } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
 import { summarizeNote } from './lib/text-summary.mjs';
+import {
+  expandWithAi,
+  isAiConfigured,
+  loadAiSettings,
+  maskAiSettings,
+  saveAiSettings,
+  summarizeWithAi,
+  testAi,
+} from './lib/ai-service.mjs';
 import { localizeNoteMedia } from './lib/media-import.mjs';
 import { localizeNoteVideo, reanalyzeStoredNoteVideo } from './lib/video-import.mjs';
 import { resolveAnonymousNote } from './lib/anonymous-note-resolver.mjs';
@@ -703,9 +712,11 @@ async function importNote(body = {}) {
     mediaDirectory,
     publicBaseUrl,
   });
+  const aiSettings = await loadAiSettings(dataDirectory);
   const imported = await localizeNoteVideo(withImages, {
     mediaDirectory,
     publicBaseUrl,
+    skipTranscript: aiSettings.autoTranscript === false,
   });
   const note = {
     ...imported,
@@ -1003,15 +1014,66 @@ const server = createServer(async (request, response) => {
     }
 
     const summaryNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/summary$/i);
-    if (request.method === 'GET' && summaryNoteMatch) {
+    if ((request.method === 'GET' || request.method === 'POST') && summaryNoteMatch) {
       const notes = await readNotes();
       const note = notes.find((n) => n.id === summaryNoteMatch[1].toLowerCase());
       if (!note) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
       }
-      const summary = summarizeNote(note);
-      sendJson(request, response, 200, { ok: true, summary });
+      const aiSettings = await loadAiSettings(dataDirectory);
+      if (isAiConfigured(aiSettings)) {
+        const summary = await summarizeWithAi(aiSettings, note);
+        sendJson(request, response, 200, { ok: true, summary, engine: 'ai' });
+      } else {
+        const summary = summarizeNote(note);
+        sendJson(request, response, 200, { ok: true, summary, engine: 'local' });
+      }
+      return;
+    }
+
+    const expandNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/expand$/i);
+    if (request.method === 'POST' && expandNoteMatch) {
+      const notes = await readNotes();
+      const note = notes.find((n) => n.id === expandNoteMatch[1].toLowerCase());
+      if (!note) {
+        sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
+        return;
+      }
+      const aiSettings = await loadAiSettings(dataDirectory);
+      const expansion = await expandWithAi(aiSettings, note);
+      sendJson(request, response, 200, { ok: true, expansion });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/ai/settings') {
+      const aiSettings = await loadAiSettings(dataDirectory);
+      sendJson(request, response, 200, { ok: true, settings: maskAiSettings(aiSettings) });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/ai/settings') {
+      const body = await readRequestBody(request);
+      const aiSettings = await loadAiSettings(dataDirectory);
+      // 前端提交时 apiKey 为空字符串表示「保持原密钥不变」（脱敏显示）。
+      const updates = { ...body };
+      if (updates && typeof updates.apiKey === 'string' && updates.apiKey.trim() === '') {
+        delete updates.apiKey;
+      }
+      const saved = await saveAiSettings(dataDirectory, { ...aiSettings, ...updates });
+      sendJson(request, response, 200, { ok: true, settings: maskAiSettings(saved) });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/ai/test') {
+      const body = await readRequestBody(request);
+      const aiSettings = await loadAiSettings(dataDirectory);
+      const candidate = { ...aiSettings, ...body };
+      if (typeof candidate.apiKey === 'string' && candidate.apiKey.trim() === '') {
+        candidate.apiKey = aiSettings.apiKey;
+      }
+      const reply = await testAi(candidate);
+      sendJson(request, response, 200, { ok: true, reply });
       return;
     }
 

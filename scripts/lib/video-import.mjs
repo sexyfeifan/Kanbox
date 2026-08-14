@@ -175,6 +175,19 @@ export async function localizeNoteVideo(note, options) {
   }
 
   const localVideoUrl = `${options.publicBaseUrl}/media/${note.id}/video.mp4`;
+  if (options.skipTranscript) {
+    return {
+      ...note,
+      sourceVideoUrl,
+      videoUrl: localVideoUrl,
+      videoDuration: 0,
+      transcriptText: '',
+      transcriptSegments: [],
+      transcriptSkipped: true,
+      videoStatus: 'ready',
+      videoError: '',
+    };
+  }
   try {
     const analysis = await (options.analyzer || runNativeVideoAnalyzer)(videoPath);
     return applyVideoAnalysis({ ...note, sourceVideoUrl }, analysis, localVideoUrl);

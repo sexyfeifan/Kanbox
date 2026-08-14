@@ -47,8 +47,13 @@ import {
   renameTag,
   deleteTag,
   getNoteSummary,
+  getNoteExpansion,
+  transcribeNoteVideo,
+  getAiSettings,
+  saveAiSettings,
+  testAiConnection,
 } from '../lib/xhs-client';
-import type { AgentClient, LocalServiceHealth, LocalSetupInfo } from '../lib/xhs-client';
+import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings } from '../lib/xhs-client';
 import {
   acceptsExternalNoteDrag,
   parseDraggedCardInput,
@@ -268,12 +273,14 @@ function ExpandedCard({
   onClose,
   onDelete,
   onUpdate,
+  onTranscribe,
   isDeleting,
 }: {
   note: Note;
   onClose: () => void;
   onDelete: () => void;
   onUpdate: (updates: { title?: string; tags?: string[] }) => void;
+  onTranscribe: () => Promise<void>;
   isDeleting: boolean;
 }) {
   const color = catColor(note.category);
@@ -294,6 +301,11 @@ function ExpandedCard({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [summary, setSummary] = useState('');
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [expansion, setExpansion] = useState('');
+  const [expansionLoading, setExpansionLoading] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+  const [expansionError, setExpansionError] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -697,9 +709,28 @@ function ExpandedCard({
                 ))}
               </div>
             ) : (
-              <p style={{ margin: 0, color: '#9A958D', fontSize: 12.5, lineHeight: 1.8 }}>
-                {note.videoError || '这条视频没有识别到可转写的语音。'}
-              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ margin: 0, color: '#9A958D', fontSize: 12.5, lineHeight: 1.8 }}>
+                  {note.videoError || (note.transcriptSkipped ? '已在设置中关闭自动转写，可手动生成文稿。' : '这条视频没有识别到可转写的语音。')}
+                </p>
+                {note.videoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTranscribing(true);
+                      void onTranscribe().finally(() => setTranscribing(false));
+                    }}
+                    disabled={transcribing}
+                    style={{
+                      alignSelf: 'flex-start', height: 30, padding: '0 14px', borderRadius: 8,
+                      border: '1px solid rgba(130,153,135,0.3)', background: 'rgba(130,153,135,0.06)',
+                      color: '#4F6254', fontSize: 11, fontWeight: 600, cursor: transcribing ? 'default' : 'pointer',
+                    }}
+                  >
+                    {transcribing ? '转写中...' : '生成文稿'}
+                  </button>
+                )}
+              </div>
             )
           )}
 
@@ -911,10 +942,13 @@ function ExpandedCard({
                 onClick={async () => {
                   if (summary) { setSummary(''); return; }
                   setSummaryLoading(true);
+                  setSummaryError('');
                   try {
                     const s = await getNoteSummary(note.id);
                     setSummary(s);
-                  } catch {} finally { setSummaryLoading(false); }
+                  } catch (error) {
+                    setSummaryError(error instanceof Error ? error.message : '生成失败');
+                  } finally { setSummaryLoading(false); }
                 }}
                 style={{
                   width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -923,7 +957,7 @@ function ExpandedCard({
                 }}>
                 <span>{t('aiSummary')}</span>
                 <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
-                  {summaryLoading ? '生成中...' : summary ? '收起' : '自动生成'}
+                  {summaryLoading ? '生成中...' : summary ? '收起' : '生成'}
                 </span>
               </button>
               <AnimatePresence initial={false}>
@@ -938,6 +972,59 @@ function ExpandedCard({
                       background: 'rgba(130,153,135,0.06)', border: '1px solid rgba(130,153,135,0.1)',
                     }}>
                     {summary}
+                  </motion.p>
+                )}
+                {summaryError && !summary && (
+                  <motion.p
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    style={{ margin: '12px 0 0', color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
+                    {summaryError}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  if (expansion) { setExpansion(''); return; }
+                  setExpansionLoading(true);
+                  setExpansionError('');
+                  try {
+                    const e = await getNoteExpansion(note.id);
+                    setExpansion(e);
+                  } catch (error) {
+                    setExpansionError(error instanceof Error ? error.message : '生成失败');
+                  } finally { setExpansionLoading(false); }
+                }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  border: 'none', background: 'transparent', padding: '10px 0 0', cursor: 'pointer',
+                  color: '#666159', fontSize: 12, fontWeight: 600,
+                }}>
+                <span>{t('aiExpand')}</span>
+                <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
+                  {expansionLoading ? t('aiExpandHint') : expansion ? '收起' : '生成'}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {expansion && (
+                  <motion.p
+                    initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    style={{
+                      margin: '12px 0 0', overflow: 'hidden', whiteSpace: 'pre-wrap',
+                      color: '#4F5A63', fontSize: 12.5, lineHeight: 1.8,
+                      padding: '10px 12px', borderRadius: 10,
+                      background: 'rgba(94,127,163,0.06)', border: '1px solid rgba(94,127,163,0.1)',
+                    }}>
+                    {expansion}
+                  </motion.p>
+                )}
+                {expansionError && !expansion && (
+                  <motion.p
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    style={{ margin: '12px 0 0', color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
+                    {expansionError}
                   </motion.p>
                 )}
               </AnimatePresence>
@@ -1475,6 +1562,13 @@ export function DeskView() {
   const [backing, setBacking] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
+  // AI settings
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [aiDraft, setAiDraft] = useState<{ enabled: boolean; endpoint: string; apiKey: string; model: string; autoTranscript: boolean }>({ enabled: false, endpoint: '', apiKey: '', model: 'gpt-4o-mini', autoTranscript: true });
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiMessage, setAiMessage] = useState('');
+
   // Onboarding states
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -1863,6 +1957,19 @@ export function DeskView() {
     }
   };
 
+  const handleTranscribeNote = async (noteId: string) => {
+    try {
+      const result = await transcribeNoteVideo(noteId);
+      setNotes(result.notes);
+      setExpanded(result.note);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '转写失败';
+      setImportFeedback({ phase: 'error', title: '转写失败', message });
+      dismissImportFeedback('error', 3200);
+      throw error;
+    }
+  };
+
   const handleDragStart = (noteId: string) => {
     setDraggedNoteId(noteId);
   };
@@ -2009,6 +2116,51 @@ export function DeskView() {
       const info = await getDataInfo();
       setDataInfo(info);
     } catch {}
+    try {
+      const settings = await getAiSettings();
+      setAiSettings(settings);
+      setAiDraft({
+        enabled: settings.enabled,
+        endpoint: settings.endpoint,
+        apiKey: '',
+        model: settings.model,
+        autoTranscript: settings.autoTranscript,
+      });
+    } catch {}
+  };
+
+  const handleSaveAiSettings = async () => {
+    setAiSaving(true);
+    setAiMessage('');
+    try {
+      const saved = await saveAiSettings(aiDraft);
+      setAiSettings(saved);
+      setAiDraft({
+        enabled: saved.enabled,
+        endpoint: saved.endpoint,
+        apiKey: '',
+        model: saved.model,
+        autoTranscript: saved.autoTranscript,
+      });
+      setAiMessage('已保存');
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : '保存失败');
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleTestAi = async () => {
+    setAiTesting(true);
+    setAiMessage('');
+    try {
+      await testAiConnection(aiDraft);
+      setAiMessage(t('aiTestSuccess'));
+    } catch (error) {
+      setAiMessage(`${t('aiTestFail')}：${error instanceof Error ? error.message : ''}`);
+    } finally {
+      setAiTesting(false);
+    }
   };
 
   const handleCheckIntegrity = async () => {
@@ -2978,6 +3130,7 @@ export function DeskView() {
             onClose={() => setExpanded(null)}
             onDelete={() => void handleDeleteNote(expanded)}
             onUpdate={(updates) => void handleUpdateNote(expanded.id, updates)}
+            onTranscribe={() => handleTranscribeNote(expanded.id)}
             isDeleting={deletingNoteId === expanded.id}
           />
         )}
@@ -3355,6 +3508,109 @@ export function DeskView() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* AI Settings */}
+                <div style={{ marginTop: 24 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('aiSettings')}</h3>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: '#5E5A54' }}>{t('transcribeSettings')}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAiDraft(d => ({ ...d, autoTranscript: !d.autoTranscript }))}
+                        style={{
+                          width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative',
+                          background: aiDraft.autoTranscript ? '#829987' : '#D8D5CF', transition: 'background 0.15s',
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 2, left: aiDraft.autoTranscript ? 20 : 2,
+                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+                        }} />
+                      </button>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 10.5, color: '#9A958D' }}>{t('autoTranscriptDesc')}</p>
+                  </div>
+
+                  <div style={{ paddingTop: 14, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: '#5E5A54' }}>{t('aiEnable')}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAiDraft(d => ({ ...d, enabled: !d.enabled }))}
+                        style={{
+                          width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative',
+                          background: aiDraft.enabled ? '#829987' : '#D8D5CF', transition: 'background 0.15s',
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 2, left: aiDraft.enabled ? 20 : 2,
+                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 0.15s',
+                        }} />
+                      </button>
+                    </div>
+                    <p style={{ margin: '0 0 12px', fontSize: 10.5, color: '#9A958D' }}>{t('aiEnableDesc')}</p>
+
+                    {aiDraft.enabled && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                          {t('aiEndpoint')}
+                          <input
+                            type="text"
+                            value={aiDraft.endpoint}
+                            onChange={(e) => setAiDraft(d => ({ ...d, endpoint: e.target.value }))}
+                            placeholder="https://api.openai.com/v1"
+                            style={{
+                              marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                              background: '#F7F5F0', padding: '0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                          {t('aiApiKey')}
+                          <input
+                            type="password"
+                            value={aiDraft.apiKey}
+                            onChange={(e) => setAiDraft(d => ({ ...d, apiKey: e.target.value }))}
+                            placeholder={aiSettings?.apiKeySet ? t('aiApiKeyPlaceholder') : 'sk-...'}
+                            style={{
+                              marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                              background: '#F7F5F0', padding: '0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                          {t('aiModel')}
+                          <input
+                            type="text"
+                            value={aiDraft.model}
+                            onChange={(e) => setAiDraft(d => ({ ...d, model: e.target.value }))}
+                            placeholder="gpt-4o-mini"
+                            style={{
+                              marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                              background: '#F7F5F0', padding: '0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                      <button type="button" onClick={() => void handleTestAi()} disabled={aiTesting}
+                        style={{ flex: 1, height: 34, borderRadius: 9, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: aiTesting ? 'default' : 'pointer' }}>
+                        {aiTesting ? '测试中...' : t('aiTest')}
+                      </button>
+                      <button type="button" onClick={() => void handleSaveAiSettings()} disabled={aiSaving}
+                        style={{ flex: 1, height: 34, borderRadius: 9, border: 'none', background: '#829987', color: '#fff', fontSize: 11, fontWeight: 600, cursor: aiSaving ? 'default' : 'pointer' }}>
+                        {aiSaving ? '保存中...' : '保存'}
+                      </button>
+                    </div>
+                    {aiMessage && (
+                      <p style={{ margin: '8px 0 0', fontSize: 10.5, color: aiMessage === '已保存' || aiMessage === t('aiTestSuccess') ? '#4F6254' : '#B56A5B', lineHeight: 1.6 }}>{aiMessage}</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Language */}

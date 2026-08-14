@@ -54,6 +54,15 @@ export type DeleteNoteResult = {
   deletedId: string;
 };
 
+export type AiSettings = {
+  enabled: boolean;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  autoTranscript: boolean;
+  apiKeySet?: boolean;
+};
+
 type NotesResponse = {
   notes: Note[];
   lastImportedAt: string | null;
@@ -127,6 +136,7 @@ function normalizeNote(note: Partial<Note>): Note {
     videoDuration: typeof note.videoDuration === 'number' ? note.videoDuration : 0,
     transcriptText: typeof note.transcriptText === 'string' ? note.transcriptText : '',
     transcriptSegments: Array.isArray(note.transcriptSegments) ? note.transcriptSegments : [],
+    transcriptSkipped: note.transcriptSkipped === true,
     videoStatus: note.videoStatus,
     videoError: note.videoError,
     author: {
@@ -480,12 +490,54 @@ export async function deleteTag(name: string): Promise<{ notes: Note[]; deletedC
 }
 
 export async function getNoteSummary(noteId: string): Promise<string> {
-  const data = await fetchLocalApi<{ ok: boolean; summary: string }>(
+  const data = await fetchLocalApi<{ ok: boolean; summary: string; engine?: 'ai' | 'local' }>(
     `/notes/${noteId}/summary`,
-    undefined,
-    10000,
+    { method: 'POST' },
+    90_000,
   );
   return data.summary || '';
+}
+
+export async function getNoteExpansion(noteId: string): Promise<string> {
+  const data = await fetchLocalApi<{ ok: boolean; expansion: string }>(
+    `/notes/${noteId}/expand`,
+    { method: 'POST' },
+    90_000,
+  );
+  return data.expansion || '';
+}
+
+export async function transcribeNoteVideo(noteId: string): Promise<{ notes: Note[]; note: Note }> {
+  const payload = await fetchLocalApi<{ notes?: RawNote[]; note?: RawNote }>(
+    `/notes/${noteId}/transcribe`,
+    { method: 'POST' },
+    30 * 60_000,
+  );
+  const response = normalizeRemoteNotes(payload);
+  const note = response.notes.find((entry) => entry.id === noteId);
+  if (!note) throw new Error('转写结果不完整');
+  return { notes: response.notes, note };
+}
+
+export async function getAiSettings(): Promise<AiSettings> {
+  const data = await fetchLocalApi<{ ok: boolean; settings: AiSettings }>('/ai/settings', undefined, 8000);
+  return data.settings;
+}
+
+export async function saveAiSettings(settings: Partial<AiSettings>): Promise<AiSettings> {
+  const data = await fetchLocalApi<{ ok: boolean; settings: AiSettings }>('/ai/settings', {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  }, 8000);
+  return data.settings;
+}
+
+export async function testAiConnection(settings: Partial<AiSettings>): Promise<string> {
+  const data = await fetchLocalApi<{ ok: boolean; reply: string }>('/ai/test', {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  }, 35_000);
+  return data.reply;
 }
 
 export function formatNumber(num: number): string {

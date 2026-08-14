@@ -22,6 +22,7 @@ export interface Note {
     duration: number;
     text: string;
   }>;
+  transcriptSkipped?: boolean;
   videoStatus?: 'pending' | 'ready' | 'partial' | 'none';
   videoError?: string;
   mediaStatus?: 'pending' | 'ready' | 'partial' | 'none';
