@@ -8,8 +8,12 @@
  * - 只支持 OpenAI 兼容的 `/chat/completions` 接口（OpenAI、MiMo、DeepSeek、Moonshot 等均可）。
  */
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import path from 'node:path';
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_AI_SETTINGS = {
   enabled: false,
@@ -130,7 +134,10 @@ export function normalizeTranscriptResult(payload) {
 }
 
 /**
- * 用在线大模型（Whisper / OpenAI 兼容 `/audio/transcriptions`）转写音频。
+ * 用在线大模型转写音频，兼容两种接口形态：
+ * 1) Whisper/OpenAI 兼容的 `POST /audio/transcriptions`（multipart，OpenAI、Groq 等）；
+ * 2) MiMo 等 chat 形态：`POST /chat/completions` + `input_audio` 内容（base64 wav/mp3）。
+ * 先按形态 1 请求，若网关返回 404（路由不存在）则自动回退到形态 2。
  * @param {object} aiSettings AI 设置（含增强开关与转写接口字段）
  * @param {string|Buffer} audioPath 本地音频文件路径
  */
@@ -139,25 +146,30 @@ export async function transcribeWithAi(aiSettings, audioPath, options = {}) {
     throw new Error('音转文字增强尚未配置，请先在设置里填写接口地址、密钥和模型');
   }
   const resolved = resolveTranscriptSettings(aiSettings);
-  const url = normalizeTranscriptionEndpoint(resolved.endpoint);
   const audioBuffer = typeof audioPath === 'string' ? await readFile(audioPath) : audioPath;
   const fileName = typeof audioPath === 'string' ? path.basename(audioPath) : 'audio.m4a';
+  const timeoutMs = options.timeoutMs || 300_000;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 300_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // 形态 1：Whisper /audio/transcriptions（multipart）
     const form = new FormData();
     form.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), fileName);
     form.append('model', resolved.model);
     form.append('response_format', 'verbose_json');
-
-    const response = await fetch(url, {
+    const whisperUrl = normalizeTranscriptionEndpoint(resolved.endpoint);
+    const response = await fetch(whisperUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${resolved.apiKey}` },
       body: form,
       signal: controller.signal,
     });
 
+    if (response.status === 404 || response.status === 405) {
+      // 网关不提供 Whisper 路由 → 回退到 chat/completions 的 input_audio 形态（MiMo 等）
+      return await transcribeViaInputAudio(resolved, audioPath, timeoutMs);
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
@@ -171,13 +183,77 @@ export async function transcribeWithAi(aiSettings, audioPath, options = {}) {
   }
 }
 
-/** 测试音转文字接口是否可用（用极小的一段静音音频做连通性探测）。 */
+/**
+ * chat/completions + input_audio 形态转写（MiMo 等）。
+ * 音频须为 wav/mp3，先经 afconvert 把 m4a 转成 16kHz 单声道 WAV 再 base64 上传。
+ * 返回 { text, segments }（与 Whisper 结果形状一致）。
+ */
+async function transcribeViaInputAudio(resolved, audioPath, timeoutMs = 300_000) {
+  if (typeof audioPath !== 'string') {
+    throw new Error('chat 形态转写需要本地音频文件路径');
+  }
+  const wavPath = await convertAudioToWav(audioPath);
+  let wavBuffer;
+  try {
+    wavBuffer = await readFile(wavPath);
+  } finally {
+    await rm(wavPath, { force: true }).catch(() => {});
+  }
+  const base64 = wavBuffer.toString('base64');
+  const chatUrl = normalizeEndpoint(resolved.endpoint);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(chatUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${resolved.apiKey}` },
+      body: JSON.stringify({
+        model: resolved.model,
+        messages: [
+          { role: 'user', content: [{ type: 'input_audio', input_audio: { data: base64, format: 'wav' } }] },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
+    }
+    const payload = await response.json();
+    const text = payload?.choices?.[0]?.message?.content;
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new Error('音转文字接口返回结果为空');
+    }
+    return normalizeTranscriptResult({ text });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('音转文字接口请求超时');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 将音频文件转成 16kHz 单声道 16-bit WAV（MiMo 的 input_audio 只接受 wav/mp3）。 */
+async function convertAudioToWav(inputPath) {
+  const outPath = inputPath.replace(/\.[^.]+$/, '') + '.wav';
+  try {
+    await execFileAsync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@16000', '-c', '1', inputPath, outPath], {
+      timeout: 5 * 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+  } catch (error) {
+    throw new Error(`音轨转码失败：${error?.message || error}`);
+  }
+  return outPath;
+}
+
+/** 测试音转文字接口是否可用（用极小的一段静音音频做连通性探测，兼容 Whisper 与 MiMo 两种形态）。 */
 export async function testTranscription(aiSettings) {
   if (!isTranscriptEnhanceConfigured(aiSettings)) {
     throw new Error('音转文字增强尚未配置，请先在设置里填写接口地址、密钥和模型');
   }
   const resolved = resolveTranscriptSettings(aiSettings);
-  const url = normalizeTranscriptionEndpoint(resolved.endpoint);
   // 生成一段 0.2 秒的静音 WAV（PCM 16-bit mono 8kHz）作为连通性测试音频
   const sampleRate = 8000;
   const sampleCount = Math.floor(sampleRate * 0.2);
@@ -193,12 +269,35 @@ export async function testTranscription(aiSettings) {
     const form = new FormData();
     form.append('file', new Blob([wav], { type: 'audio/wav' }), 'probe.wav');
     form.append('model', resolved.model);
-    const response = await fetch(url, {
+    const whisperUrl = normalizeTranscriptionEndpoint(resolved.endpoint);
+    const response = await fetch(whisperUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${resolved.apiKey}` },
       body: form,
       signal: controller.signal,
     });
+
+    if (response.status === 404 || response.status === 405) {
+      // 回退到 chat 形态连通性探测（把同一段静音 WAV 直接 base64 上传，无需转码）
+      const chatUrl = normalizeEndpoint(resolved.endpoint);
+      const chatResponse = await fetch(chatUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${resolved.apiKey}` },
+        body: JSON.stringify({
+          model: resolved.model,
+          messages: [
+            { role: 'user', content: [{ type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } }] },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      if (!chatResponse.ok) {
+        const detail = await chatResponse.text().catch(() => '');
+        throw new Error(`音转文字接口返回 ${chatResponse.status}：${detail.slice(0, 200)}`);
+      }
+      return await chatResponse.text();
+    }
+
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
@@ -308,10 +407,11 @@ export async function testAi(aiSettings) {
   return content;
 }
 
-/** 返回「脱敏」后的设置（不直接回传密钥原文，仅标记是否已设置）。 */
-export function maskAiSettings(aiSettings) {
-  const masked = { ...aiSettings, apiKey: '', transcribeApiKey: '' };
-  masked.apiKeySet = Boolean(aiSettings.apiKey && String(aiSettings.apiKey).trim());
-  masked.transcribeApiKeySet = Boolean(aiSettings.transcribeApiKey && String(aiSettings.transcribeApiKey).trim());
-  return masked;
+/** 返回可直接展示的设置（含密钥原文，本地桌面应用密钥本就明文存于 settings.json）。
+ *  附 apiKeySet / transcribeApiKeySet 标记，供前端展示「已设置」状态。 */
+export function publicAiSettings(aiSettings) {
+  const out = { ...aiSettings };
+  out.apiKeySet = Boolean(aiSettings.apiKey && String(aiSettings.apiKey).trim());
+  out.transcribeApiKeySet = Boolean(aiSettings.transcribeApiKey && String(aiSettings.transcribeApiKey).trim());
+  return out;
 }

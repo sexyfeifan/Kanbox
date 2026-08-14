@@ -15,7 +15,7 @@ import {
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
-  maskAiSettings,
+  publicAiSettings,
   saveAiSettings,
   summarizeWithAi,
   testAi,
@@ -1076,7 +1076,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/ai/settings') {
       const aiSettings = await loadAiSettings(dataDirectory);
-      sendJson(request, response, 200, { ok: true, settings: maskAiSettings(aiSettings) });
+      sendJson(request, response, 200, { ok: true, settings: publicAiSettings(aiSettings) });
       return;
     }
 
@@ -1092,7 +1092,7 @@ const server = createServer(async (request, response) => {
         delete updates.transcribeApiKey;
       }
       const saved = await saveAiSettings(dataDirectory, { ...aiSettings, ...updates });
-      sendJson(request, response, 200, { ok: true, settings: maskAiSettings(saved) });
+      sendJson(request, response, 200, { ok: true, settings: publicAiSettings(saved) });
       return;
     }
 

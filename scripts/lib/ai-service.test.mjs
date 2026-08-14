@@ -9,8 +9,8 @@ import {
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
-  maskAiSettings,
   normalizeTranscriptResult,
+  publicAiSettings,
   resolveTranscriptSettings,
   saveAiSettings,
 } from './ai-service.mjs';
@@ -40,11 +40,11 @@ test('isAiConfigured 只在 enabled + endpoint + apiKey + model 齐全时为真'
   assert.equal(isAiConfigured({ enabled: true, endpoint: 'https://x/v1', apiKey: 'k', model: '' }), false);
 });
 
-test('maskAiSettings 不回传密钥原文，仅标记是否已设置', () => {
-  const masked = maskAiSettings({ enabled: true, endpoint: 'https://x/v1', apiKey: 'secret', model: 'm', autoTranscript: true });
-  assert.equal(masked.apiKey, '');
-  assert.equal(masked.apiKeySet, true);
-  assert.equal(masked.endpoint, 'https://x/v1');
+test('publicAiSettings 回传密钥原文并标记是否已设置', () => {
+  const out = publicAiSettings({ enabled: true, endpoint: 'https://x/v1', apiKey: 'k', model: 'm', autoTranscript: true });
+  assert.equal(out.apiKey, 'k');
+  assert.equal(out.apiKeySet, true);
+  assert.equal(out.endpoint, 'https://x/v1');
 });
 
 test('saveAiSettings / loadAiSettings 往返并保留默认值', async () => {
@@ -128,15 +128,15 @@ test('normalizeTranscriptResult 规整 verbose_json 与纯 text 两种返回', (
   assert.equal(normalizeTranscriptResult({}).segments.length, 0);
 });
 
-test('maskAiSettings 同时脱敏转写密钥', () => {
-  const masked = maskAiSettings({
+test('publicAiSettings 同时标记转写密钥', () => {
+  const out = publicAiSettings({
     enabled: true,
     endpoint: 'https://x/v1',
-    apiKey: 'summary-key',
-    transcribeApiKey: 'stt-key',
+    apiKey: 'k',
+    transcribeApiKey: 'tk',
   });
-  assert.equal(masked.apiKey, '');
-  assert.equal(masked.transcribeApiKey, '');
-  assert.equal(masked.apiKeySet, true);
-  assert.equal(masked.transcribeApiKeySet, true);
+  assert.equal(out.apiKey, 'k');
+  assert.equal(out.transcribeApiKey, 'tk');
+  assert.equal(out.apiKeySet, true);
+  assert.equal(out.transcribeApiKeySet, true);
 });

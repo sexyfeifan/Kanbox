@@ -1593,6 +1593,8 @@ export function DeskView() {
   const [aiSaving, setAiSaving] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
+  const [showApiKey, setShowApiKey] = useState(true);
+  const [showTranscribeApiKey, setShowTranscribeApiKey] = useState(true);
   const [aiTranscribeTesting, setAiTranscribeTesting] = useState(false);
   const [aiTranscribeTestResult, setAiTranscribeTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [aiMessage, setAiMessage] = useState('');
@@ -3628,16 +3630,26 @@ export function DeskView() {
                         </label>
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('transcribeApiKey')}
-                          <input
-                            type="password"
-                            value={aiDraft.transcribeApiKey}
-                            onChange={(e) => setAiDraft(d => ({ ...d, transcribeApiKey: e.target.value }))}
-                            placeholder={aiSettings?.transcribeApiKeySet ? t('aiApiKeyPlaceholder') : t('transcribeApiKeyPlaceholder')}
-                            style={{
-                              marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
-                              background: '#F7F5F0', padding: '0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
-                            }}
-                          />
+                          <div style={{ position: 'relative', marginTop: 4 }}>
+                            <input
+                              type={showTranscribeApiKey ? 'text' : 'password'}
+                              value={aiDraft.transcribeApiKey}
+                              onChange={(e) => setAiDraft(d => ({ ...d, transcribeApiKey: e.target.value }))}
+                              placeholder={aiSettings?.transcribeApiKeySet ? t('aiApiKeyPlaceholder') : t('transcribeApiKeyPlaceholder')}
+                              style={{
+                                width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                background: '#F7F5F0', padding: '0 34px 0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowTranscribeApiKey(v => !v)}
+                              title={showTranscribeApiKey ? '隐藏密钥' : '显示密钥'}
+                              style={{ position: 'absolute', top: 0, right: 0, width: 34, height: 34, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, color: '#8C8780' }}
+                            >
+                              {showTranscribeApiKey ? '🙈' : '👁'}
+                            </button>
+                          </div>
                         </label>
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('transcribeModel')}
@@ -3703,16 +3715,26 @@ export function DeskView() {
                         </label>
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('aiApiKey')}
-                          <input
-                            type="password"
-                            value={aiDraft.apiKey}
-                            onChange={(e) => setAiDraft(d => ({ ...d, apiKey: e.target.value }))}
-                            placeholder={aiSettings?.apiKeySet ? t('aiApiKeyPlaceholder') : 'sk-...'}
-                            style={{
-                              marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
-                              background: '#F7F5F0', padding: '0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
-                            }}
-                          />
+                          <div style={{ position: 'relative', marginTop: 4 }}>
+                            <input
+                              type={showApiKey ? 'text' : 'password'}
+                              value={aiDraft.apiKey}
+                              onChange={(e) => setAiDraft(d => ({ ...d, apiKey: e.target.value }))}
+                              placeholder={aiSettings?.apiKeySet ? t('aiApiKeyPlaceholder') : 'sk-...'}
+                              style={{
+                                width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                background: '#F7F5F0', padding: '0 34px 0 10px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKey(v => !v)}
+                              title={showApiKey ? '隐藏密钥' : '显示密钥'}
+                              style={{ position: 'absolute', top: 0, right: 0, width: 34, height: 34, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, color: '#8C8780' }}
+                            >
+                              {showApiKey ? '🙈' : '👁'}
+                            </button>
+                          </div>
                         </label>
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('aiModel')}
