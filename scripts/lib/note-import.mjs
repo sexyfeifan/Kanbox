@@ -190,19 +190,10 @@ export function noteFromSharedText(input) {
     .filter((line) => !/^(复制|打开小红书|查看完整笔记)/.test(line));
 
   const meaningfulText = lines.join('\n').trim();
-  
-  // 如果只有 URL 没有正文，允许导入——后续匿名解析会获取正文
+
+  // 单独拖入链接没有正文：抛出异常，由 importNote 走匿名解析补全正文与配图
   if (meaningfulText.length < 12) {
-    const noteId = extractNoteIdFromUrl(sourceUrl);
-    return normalizeImportedNote({
-      sourceUrl,
-      title: noteId || '小红书笔记',
-      content: '',
-      imageUrls: [],
-      author: { name: '', avatar: '', userId: '' },
-      tags: [],
-      type: 'normal',
-    });
+    throw new Error('需要匿名解析正文');
   }
 
   return normalizeImportedNote({

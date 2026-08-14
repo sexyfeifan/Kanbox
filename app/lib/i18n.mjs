@@ -48,6 +48,14 @@ const LANGUAGES = {
     onboardingSkip: '跳过',
     onboardingNext: '下一步',
     onboardingDone: '开始使用',
+    batchMode: '多选',
+    pasteLinkPlaceholder: '粘贴小红书链接',
+    language: '语言',
+    checking: '检查中...',
+    deleting: '删除中...',
+    contentUpdated: '内容已更新',
+    deleteSelected: '删除选中',
+    exitBatchMode: '退出多选',
   },
   'en': {
     appName: 'Kanbox',
@@ -98,6 +106,14 @@ const LANGUAGES = {
     onboardingSkip: 'Skip',
     onboardingNext: 'Next',
     onboardingDone: 'Get Started',
+    batchMode: 'Multi-select',
+    pasteLinkPlaceholder: 'Paste Xiaohongshu link',
+    language: 'Language',
+    checking: 'Checking...',
+    deleting: 'Deleting...',
+    contentUpdated: 'Content updated',
+    deleteSelected: 'Delete selected',
+    exitBatchMode: 'Exit multi-select',
   },
   'ja': {
     appName: 'Kanbox',
@@ -148,6 +164,14 @@ const LANGUAGES = {
     onboardingSkip: 'スキップ',
     onboardingNext: '次へ',
     onboardingDone: 'はじめる',
+    batchMode: '複数選択',
+    pasteLinkPlaceholder: '小紅書リンクを貼り付け',
+    language: '言語',
+    checking: 'チェック中...',
+    deleting: '削除中...',
+    contentUpdated: '内容を更新しました',
+    deleteSelected: '選択を削除',
+    exitBatchMode: '複数選択を終了',
   },
   'zh-TW': {
     appName: 'Kanbox',
@@ -198,6 +222,14 @@ const LANGUAGES = {
     onboardingSkip: '跳過',
     onboardingNext: '下一步',
     onboardingDone: '開始使用',
+    batchMode: '複選',
+    pasteLinkPlaceholder: '貼上小紅書連結',
+    language: '語言',
+    checking: '檢查中...',
+    deleting: '刪除中...',
+    contentUpdated: '內容已更新',
+    deleteSelected: '刪除選中',
+    exitBatchMode: '退出複選',
   },
 };
 
@@ -238,7 +270,7 @@ export function getAvailableLanguages() {
     'ja': '日本語',
     'zh-TW': '繁體中文',
   };
-  return Object.keys(LANGUAGES).map(code => ({
+  return ['zh-CN', 'zh-TW', 'ja', 'en'].map(code => ({
     code,
     name: names[code] || code,
   }));

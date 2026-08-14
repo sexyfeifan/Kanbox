@@ -539,7 +539,7 @@ function ExpandedCard({
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <button type="button" onClick={() => setConfirmingDelete(false)} disabled={isDeleting}
                   style={{ border: 'none', background: 'transparent', color: '#8C8780', fontSize: 11, cursor: 'pointer', padding: '5px 7px' }}>
-                  取消
+                  {t('cancel')}
                 </button>
                 <button type="button" onClick={onDelete} disabled={isDeleting}
                   style={{
@@ -548,7 +548,7 @@ function ExpandedCard({
                     cursor: isDeleting ? 'default' : 'pointer', padding: '6px 10px',
                   }}>
                   {isDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                  {isDeleting ? '删除中' : '确认删除'}
+                  {isDeleting ? t('deleting') : t('confirmDelete')}
                 </button>
               </div>
             ) : (
@@ -557,7 +557,7 @@ function ExpandedCard({
                   display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent',
                   color: '#AAA49C', fontSize: 10.5, cursor: 'pointer', padding: '5px 4px',
                 }}>
-                <Trash2 size={12} strokeWidth={1.7} /> 删除
+                <Trash2 size={12} strokeWidth={1.7} /> {t('delete')}
               </button>
             )}
           </div>
@@ -629,7 +629,7 @@ function ExpandedCard({
                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
                 <ExternalLink size={11} />
-                查看原帖
+                {t('viewOriginal')}
               </a>
             )}
           </div>
@@ -640,8 +640,8 @@ function ExpandedCard({
               borderRadius: 12, background: 'rgba(72,67,58,0.055)',
             }}>
               {([
-                ['note', '笔记正文'],
-                ['transcript', '视频文稿'],
+                ['note', t('noteContent')],
+                ['transcript', t('videoTranscript')],
               ] as const).map(([tab, label]) => {
                 const active = readerTab === tab;
                 return (
@@ -883,7 +883,7 @@ function ExpandedCard({
                   border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
                   color: '#666159', fontSize: 12, fontWeight: 600,
                 }}>
-                <span>图片文字</span>
+                <span>{t('imageText')}</span>
                 <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
                   {showOcr ? '收起' : '展开 OCR'}
                 </span>
@@ -921,7 +921,7 @@ function ExpandedCard({
                   border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
                   color: '#666159', fontSize: 12, fontWeight: 600,
                 }}>
-                <span>AI 摘要</span>
+                <span>{t('aiSummary')}</span>
                 <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
                   {summaryLoading ? '生成中...' : summary ? '收起' : '自动生成'}
                 </span>
@@ -1732,7 +1732,7 @@ export function DeskView() {
       setImportFeedback({
         phase: 'complete',
         title: result.note.title,
-        message: result.created ? '已收录' : '内容已更新',
+        message: result.created ? t('saved') : t('contentUpdated'),
       });
       await loadLocalStatus();
       window.setTimeout(() => {
@@ -2148,7 +2148,7 @@ export function DeskView() {
           event.preventDefault();
           setImportFeedback({
             phase: 'dragging',
-            title: '松手收录',
+            title: t('dragToSave'),
             message: '',
           });
         }
@@ -2160,7 +2160,7 @@ export function DeskView() {
           if (importFeedback.phase === 'idle') {
             setImportFeedback({
               phase: 'dragging',
-              title: '松手收录',
+              title: t('dragToSave'),
               message: '',
             });
           }
@@ -2241,7 +2241,7 @@ export function DeskView() {
                 }}>
                   <BookMarked size={25} strokeWidth={1.7} />
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em' }}>松手收录</span>
+                <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.08em' }}>{t('dragToSave')}</span>
               </motion.div>
             ) : (
               <motion.div
@@ -2275,7 +2275,7 @@ export function DeskView() {
                   {importFeedback.phase === 'processing'
                     ? importFeedback.message
                     : importFeedback.phase === 'complete'
-                      ? `已收录 · ${importFeedback.title}`
+                      ? `${t('saved')} · ${importFeedback.title}`
                       : importFeedback.phase === 'recognized'
                         ? '已接收'
                         : `${importFeedback.title}${importFeedback.message ? ` · ${importFeedback.message}` : ''}`}
@@ -2327,8 +2327,8 @@ export function DeskView() {
             onKeyDown={(event) => {
               if (event.key === 'Escape') setSearchQuery('');
             }}
-            placeholder="搜索"
-            aria-label="搜索收藏"
+            placeholder={t('search')}
+            aria-label={t('search')}
             style={{
               width: '100%', height: 34, padding: '0 13px 0 36px',
               borderRadius: 13, border: '1px solid rgba(73,56,28,0.07)',
@@ -2340,7 +2340,7 @@ export function DeskView() {
         </div>
 
         <div style={{ display: 'flex', gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
-          {([['newest', '最新'], ['oldest', '最早'], ['title', '标题']] as const).map(([key, label]) => (
+          {([['newest', t('newest')], ['oldest', t('oldest')], ['title', t('title')]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setSortBy(key)}
               className="titlebar-no-drag"
               style={{
@@ -2363,12 +2363,12 @@ export function DeskView() {
             color: batchMode ? '#4F6254' : '#9A958D',
             fontWeight: batchMode ? 600 : 400,
           }}>
-          多选
+          {t('batchMode')}
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {([
-            ['extension', '插件', Puzzle],
+            ['extension', t('plugin'), Puzzle],
             ['agent', 'Agent', Bot],
           ] as const).map(([panel, label, Icon]) => (
             <motion.button
@@ -2405,7 +2405,7 @@ export function DeskView() {
             className="titlebar-no-drag"
           >
             <Download size={14} strokeWidth={1.8} />
-            导出
+            {t('export')}
           </motion.button>
           <motion.button
             whileHover={{ y: -1, scale: 1.02 }}
@@ -2425,7 +2425,7 @@ export function DeskView() {
               <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
               <line x1="7" y1="7" x2="7.01" y2="7"></line>
             </svg>
-            标签
+            {t('tags')}
           </motion.button>
           <motion.button
             whileHover={{ y: -1, scale: 1.02 }}
@@ -2445,7 +2445,7 @@ export function DeskView() {
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
-            设置
+            {t('settings')}
           </motion.button>
         </div>
       </header>
@@ -2494,7 +2494,7 @@ export function DeskView() {
             >
               <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h2 style={{ margin: 0, color: '#3A3840', fontFamily: '"Playfair Display", Georgia, serif', fontSize: 19, fontWeight: 600 }}>
-                  标签管理
+                  {t('tagManager')}
                 </h2>
                 <button onClick={() => setShowTagManager(false)} style={{ width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(0,0,0,0.06)', background: '#F4F2ED', color: '#6F6B64', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                   <X size={15} />
@@ -2502,7 +2502,7 @@ export function DeskView() {
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
                 {allTags.length === 0 ? (
-                  <p style={{ textAlign: 'center', color: '#9A958D', fontSize: 12, padding: '24px 0' }}>暂无标签</p>
+                  <p style={{ textAlign: 'center', color: '#9A958D', fontSize: 12, padding: '24px 0' }}>{t('noTags')}</p>
                 ) : (
                   allTags.map(tag => (
                     <div key={tag.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
@@ -2559,7 +2559,7 @@ export function DeskView() {
               transition: 'background 0.15s, color 0.15s',
             }}
           >
-            全部
+            {t('all')}
           </button>
           {categories.map((cat) => {
             const c = catColor(cat);
@@ -2624,10 +2624,10 @@ export function DeskView() {
               fontWeight: 600,
               color: '#4B494F',
             }}>
-              把一条笔记拖进来
+              {t('emptyState')}
             </div>
             <div style={{ marginTop: 7, fontSize: 12 }}>
-              松开后会自动保存图片、识别文字、分析并放进卡片分组
+              {t('emptyHint')}
             </div>
           </motion.div>
         )}
@@ -2646,7 +2646,7 @@ export function DeskView() {
               marginTop: 12, fontFamily: '"Playfair Display", Georgia, serif',
               fontSize: 20, fontWeight: 600, color: '#4B494F',
             }}>
-              没找到相关收藏
+              {t('noResults')}
             </div>
           </motion.div>
         )}
@@ -3018,7 +3018,7 @@ export function DeskView() {
                     value={pasteUrl}
                     onChange={(e) => setPasteUrl(e.target.value)}
                     onKeyDown={handlePasteInputKeyDown}
-                    placeholder="粘贴小红书链接"
+                    placeholder={t('pasteLinkPlaceholder')}
                     autoFocus
                     style={{
                       width: 320,
@@ -3117,7 +3117,7 @@ export function DeskView() {
               }}
             >
               <Link size={16} />
-              粘贴链接
+              {t('pasteLink')}
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -3141,7 +3141,7 @@ export function DeskView() {
               }}
             >
               <Plus size={16} />
-              新建分组
+              {t('newGroup')}
             </motion.button>
           </div>
         </motion.div>
@@ -3200,7 +3200,7 @@ export function DeskView() {
                   color: '#A85F52', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}>
                 <Trash2 size={14} strokeWidth={1.8} />
-                删除选中
+                {t('deleteSelected')}
               </button>
               <button onClick={() => {
                 setBatchMode(false);
@@ -3212,7 +3212,7 @@ export function DeskView() {
                   border: '1px solid rgba(73,56,28,0.08)', background: 'transparent',
                   color: '#666159', fontSize: 12, fontWeight: 500, cursor: 'pointer',
                 }}>
-                退出多选
+                {t('exitBatchMode')}
               </button>
             </div>
           </motion.div>
@@ -3257,7 +3257,7 @@ export function DeskView() {
               {/* Header */}
               <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h2 style={{ margin: 0, color: '#3A3840', fontFamily: '"Playfair Display", Georgia, serif', fontSize: 19, fontWeight: 600 }}>
-                  设置
+                  {t('settings')}
                 </h2>
                 <button onClick={() => setShowSettings(false)} style={{ width: 32, height: 32, borderRadius: 999, border: '1px solid rgba(0,0,0,0.06)', background: '#F4F2ED', color: '#6F6B64', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                   <X size={15} />
@@ -3268,30 +3268,30 @@ export function DeskView() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
                 {/* Data Info */}
                 <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>数据统计</h3>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('dataStats')}</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
                       <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo?.notesCount ?? '-'}</div>
-                      <div style={{ fontSize: 10, color: '#9A958D' }}>笔记总数</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>{t('totalNotes')}</div>
                     </div>
                     <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
                       <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo ? formatBytes(dataInfo.mediaSize) : '-'}</div>
-                      <div style={{ fontSize: 10, color: '#9A958D' }}>媒体文件</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>{t('mediaFiles')}</div>
                     </div>
                     <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
                       <div style={{ fontSize: 20, fontWeight: 600, color: '#3A3840' }}>{dataInfo?.backupCount ?? 0}</div>
-                      <div style={{ fontSize: 10, color: '#9A958D' }}>备份文件</div>
+                      <div style={{ fontSize: 10, color: '#9A958D' }}>{t('backups')}</div>
                     </div>
                     <div style={{ padding: '12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)' }}>
                       <div style={{ fontSize: 11, color: '#5E5A54', wordBreak: 'break-all' }}>{dataInfo?.dataDirectory ?? '-'}</div>
-                      <div style={{ fontSize: 10, color: '#9A958D', marginTop: 4 }}>数据目录</div>
+                      <div style={{ fontSize: 10, color: '#9A958D', marginTop: 4 }}>{t('dataDir')}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Backup */}
                 <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>导出与备份</h3>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('backupRestore')}</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                     <button onClick={() => void handleCreateBackup()} disabled={backing}
                       style={{ height: 36, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
@@ -3307,7 +3307,7 @@ export function DeskView() {
                     </button>
                     <button onClick={() => void handleRestoreBackup()} disabled={restoring}
                       style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                      从备份恢复
+                      {t('restoreBackup')}
                     </button>
                   </div>
                   <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
@@ -3317,10 +3317,10 @@ export function DeskView() {
 
                 {/* Data Integrity */}
                 <div>
-                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>数据完整性</h3>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('integrity')}</h3>
                   <button onClick={() => void handleCheckIntegrity()} disabled={checking} style={{ width: '100%', height: 40, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 12, fontWeight: 600, cursor: checking ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12 }}>
                     {checking ? <Loader2 size={14} className="animate-spin" /> : null}
-                    {checking ? '检查中...' : '检查数据完整性'}
+                    {checking ? t('checking') : t('checkIntegrity')}
                   </button>
 
                   {integrityResult && (
@@ -3347,7 +3347,7 @@ export function DeskView() {
 
                 {/* Language */}
                 <div style={{ marginTop: 24 }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>语言 / Language</h3>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('language')}</h3>
                   <div style={{ display: 'flex', gap: 8 }}>
                     {getAvailableLanguages().map(lang => (
                       <button key={lang.code} onClick={() => setLanguage(lang.code)}
