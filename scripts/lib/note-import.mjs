@@ -5,6 +5,11 @@ const ALLOWED_HOSTS = new Set([
   'www.xiaohongshu.com',
   'm.xiaohongshu.com',
 ]);
+// 小红书 App/网页分享短链域名，需要先展开重定向到真实笔记页
+const SHORT_LINK_HOSTS = new Set([
+  'xhslink.com',
+  'www.xhslink.com',
+]);
 
 const NOTE_PATH_PATTERNS = [
   /^\/explore\/([0-9a-f]{24})(?:\/|$)/i,
@@ -33,8 +38,20 @@ function parseSupportedUrl(value) {
   return url;
 }
 
+// 判断是否为小红书短链（xhslink.com），需要展开才能拿到真实 noteId 与 xsec_token
+export function isShortLink(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    return SHORT_LINK_HOSTS.has(new URL(value).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export function extractSharedNoteUrl(input) {
-  const supportedUrl = extractUrls(input)
+  const candidates = extractUrls(input);
+  // 优先匹配小红书长链
+  const supportedUrl = candidates
     .map((value) => {
       try {
         return parseSupportedUrl(value);
@@ -44,11 +61,13 @@ export function extractSharedNoteUrl(input) {
     })
     .find(Boolean);
 
-  if (!supportedUrl) {
-    throw new Error('没有识别到有效的小红书笔记链接');
-  }
+  if (supportedUrl) return supportedUrl.toString();
 
-  return supportedUrl.toString();
+  // 否则接受小红书短链（xhslink.com），由 importNote 展开重定向
+  const shortLink = candidates.find((value) => isShortLink(value));
+  if (shortLink) return new URL(shortLink).toString();
+
+  throw new Error('没有识别到有效的小红书笔记链接');
 }
 
 export function extractNoteIdFromUrl(value) {

@@ -71,7 +71,7 @@ test('normalizeImportedNote keeps visible page data only', () => {
 });
 
 test('noteFromSharedText rejects a bare link and accepts pasted content', () => {
-  assert.throws(() => noteFromSharedText(sourceUrl), /单独拖入链接无法安全读取正文/);
+  assert.throws(() => noteFromSharedText(sourceUrl), /需要匿名解析正文/);
   const note = noteFromSharedText(`这是标题\n这是已经复制出来的完整笔记正文内容\n${sourceUrl}`);
   assert.equal(note.title, '这是标题');
 });

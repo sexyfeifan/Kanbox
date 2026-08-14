@@ -3,6 +3,10 @@ const PAGE_HOSTS = new Set([
   'www.xiaohongshu.com',
   'm.xiaohongshu.com',
 ]);
+const SHORT_LINK_HOSTS = new Set([
+  'xhslink.com',
+  'www.xhslink.com',
+]);
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 3;
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
@@ -185,6 +189,11 @@ function notePayloadFromHtml(html, noteId, sourceUrl) {
   const noteRoot = state?.note || state?.noteData || null;
   const note = findNote(noteRoot, noteId);
   if (!note) {
+    // 小红书对匿名访问的详情页，缺少 xsec_token 时返回 404「页面不见了」或空 noteDetailMap。
+    const looksBlocked = /页面不见了|暂时无法浏览|sec_/i.test(html) || html.includes('"noteDetailMap":{}');
+    if (looksBlocked) {
+      throw new Error('匿名访问被小红书拦截：这条链接缺少访问凭证。请从小红书搜索结果页直接拖动笔记卡片，或复制 App 分享链接（含 xsec_token），再试一次');
+    }
     throw new Error('匿名解析没有读到完整笔记；不会切换到你的登录浏览器');
   }
 
@@ -251,13 +260,55 @@ async function fetchAnonymousPage(sourceUrl, fetchImpl) {
 }
 
 export async function resolveAnonymousNote(sourceUrl, options = {}) {
-  const pageUrl = assertAllowedPageUrl(sourceUrl);
-  const noteId = options.expectedNoteId || pageUrl.pathname
+  const fetchImpl = options.fetchImpl || fetch;
+
+  // 小红书短链（xhslink.com）需要先展开：跟随重定向拿到真实笔记页 URL。
+  // 展开后的 URL 通常自带 xsec_token，详情页匿名访问必须带该参数，否则 302→404。
+  let pageUrl = sourceUrl;
+  if (isShortLink(sourceUrl)) {
+    pageUrl = await expandShortLink(sourceUrl, fetchImpl);
+  }
+
+  const url = assertAllowedPageUrl(pageUrl);
+  const noteId = options.expectedNoteId || url.pathname
     .match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1];
   if (!noteId || !/^[0-9a-f]{24}$/i.test(noteId)) {
     throw new Error('匿名解析器没有识别到笔记 ID');
   }
 
-  const html = await fetchAnonymousPage(pageUrl.toString(), options.fetchImpl || fetch);
-  return notePayloadFromHtml(html, noteId.toLowerCase(), pageUrl.toString());
+  const html = await fetchAnonymousPage(url.toString(), fetchImpl);
+  return notePayloadFromHtml(html, noteId.toLowerCase(), url.toString());
+}
+
+function isShortLink(value) {
+  try {
+    return SHORT_LINK_HOSTS.has(new URL(value).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function expandShortLink(shortUrl, fetchImpl) {
+  const response = await fetchImpl(shortUrl, {
+    method: 'GET',
+    redirect: 'manual',
+    credentials: 'omit',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'KanboxFavorites/0.1 anonymous-local-resolver',
+    },
+  });
+
+  const location = response.headers.get('location');
+  if (response.status >= 300 && response.status < 400 && location) {
+    return new URL(location, shortUrl).toString();
+  }
+  if (response.ok) {
+    // 某些短链直接返回 HTML，尝试从内容里解析真实链接
+    const html = await response.text();
+    const canonical = html.match(/https?:\/\/[^\s"'<>]+xiaohongshu\.com[^\s"'<>]*/i)?.[0];
+    if (canonical) return canonical;
+  }
+  throw new Error('短链展开失败，无法获取真实笔记地址');
 }

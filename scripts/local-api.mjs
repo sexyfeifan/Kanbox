@@ -16,6 +16,7 @@ import { resolveAnonymousNote } from './lib/anonymous-note-resolver.mjs';
 import {
   extractNoteIdFromUrl,
   extractSharedNoteUrl,
+  isShortLink,
   mergeImportedNote,
   normalizeImportedNote,
   noteFromSharedText,
@@ -660,11 +661,16 @@ async function importNote(body = {}) {
       normalized = noteFromSharedText(body.input);
     } catch (error) {
       const sourceUrl = extractSharedNoteUrl(body.input);
-      const noteId = extractNoteIdFromUrl(sourceUrl);
-      if (!noteId) throw error;
-      normalized = normalizeImportedNote(await resolveAnonymousNote(sourceUrl, {
-        expectedNoteId: noteId,
-      }));
+      // 短链（xhslink.com）无法直接从 pathname 提取 noteId，交给匿名解析器展开重定向
+      if (isShortLink(sourceUrl)) {
+        normalized = normalizeImportedNote(await resolveAnonymousNote(sourceUrl));
+      } else {
+        const noteId = extractNoteIdFromUrl(sourceUrl);
+        if (!noteId) throw error;
+        normalized = normalizeImportedNote(await resolveAnonymousNote(sourceUrl, {
+          expectedNoteId: noteId,
+        }));
+      }
     }
   }
   if (normalized.type === 'video' && !normalized.sourceVideoUrl) {

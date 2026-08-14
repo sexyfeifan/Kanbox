@@ -133,16 +133,55 @@ function noteCardFromDragTarget(target) {
     const id = sourceUrl.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1];
     if (!id) return null;
 
+    // 从页面 __INITIAL_STATE__ 提取该笔记的 xsec_token。
+    // 小红书 2026 起详情页必须带 xsec_token 才能匿名访问，否则 302→404。
+    const xsecToken = findXsecTokenById(id);
+    if (xsecToken) sourceUrl.searchParams.set('xsec_token', xsecToken);
+
     const card = link.closest('section, [class*="note-item"], [class*="feed-item"], [class*="note-card"]')
       || link.parentElement?.parentElement?.parentElement;
     const title = card?.querySelector('[class*="title"]')?.textContent?.trim()
       || (link.textContent || '').trim()
       || '这条笔记';
 
-    return { id, sourceUrl: sourceUrl.toString(), title };
+    return { id, sourceUrl: sourceUrl.toString(), title, xsecToken: xsecToken || '' };
   } catch {
     return null;
   }
+}
+
+// 从 window.__INITIAL_STATE__（或 SSR 状态）里按 noteId 找 xsecToken。
+// 小红书搜索/推荐流的 noteCard 里同时带 id 与 xsecToken 字段。
+function findXsecTokenById(noteId) {
+  if (!noteId) return '';
+  const roots = [
+    window.__INITIAL_STATE__,
+    window.__INITIAL_SSR_STATE__,
+  ];
+  const queue = roots.filter((root) => root && typeof root === 'object');
+  const visited = new WeakSet();
+  let inspected = 0;
+  while (queue.length && inspected < 30000) {
+    const value = queue.shift();
+    if (!value || typeof value !== 'object' || visited.has(value)) continue;
+    visited.add(value);
+    inspected += 1;
+
+    if (String(value?.id).toLowerCase() === noteId.toLowerCase() && typeof value?.xsecToken === 'string' && value.xsecToken) {
+      return value.xsecToken;
+    }
+
+    let entries;
+    try {
+      entries = Array.isArray(value) ? value : Object.values(value);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry && typeof entry === 'object') queue.push(entry);
+    }
+  }
+  return '';
 }
 
 function firstText(selectors) {
