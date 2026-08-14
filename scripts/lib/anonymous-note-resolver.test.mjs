@@ -92,6 +92,6 @@ test('anonymous resolver fails closed instead of falling back to a logged-in bro
       expectedNoteId: noteId,
       fetchImpl: async () => new Response('<html><h1>无法浏览</h1></html>', { status: 200 }),
     }),
-    /不会切换到你的登录浏览器/,
+    /匿名解析没有读到完整笔记内容/,
   );
 });

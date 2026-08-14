@@ -648,6 +648,25 @@ async function importNote(body = {}) {
 
   if (draggedPayload) {
     normalized = normalizeImportedNote(draggedPayload);
+    // 扩展发来的数据可能缺少正文/配图（如右键收藏、页面加载不完整）。
+    // 借鉴原始项目：此时用匿名解析补全，而不是保存空壳。
+    if (!normalized.content && normalized.imageUrls.length === 0 && normalized.sourceUrl) {
+      try {
+        const noteId = extractNoteIdFromUrl(normalized.sourceUrl);
+        if (noteId) {
+          const resolved = await resolveAnonymousNote(normalized.sourceUrl, {
+            expectedNoteId: noteId,
+          });
+          normalized = normalizeImportedNote({
+            ...resolved,
+            title: resolved.title || normalized.title,
+            id: normalized.id,
+          });
+        }
+      } catch {
+        // 匿名解析失败，保留原始数据（至少有标题和链接）
+      }
+    }
   } else if (draggedCard) {
     const resolved = await resolveAnonymousNote(draggedCard.sourceUrl, {
       expectedNoteId: draggedCard.id,

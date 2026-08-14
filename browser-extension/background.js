@@ -12,6 +12,18 @@ async function importNote(note) {
   return payload;
 }
 
+// 发送原始 URL/文本，让后端走完整匿名解析链路（补全正文、配图、视频、分类）
+async function importNoteRaw(input) {
+  const response = await fetch(LOCAL_IMPORT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || '本地导入失败');
+  return payload;
+}
+
 async function getSavedNoteIds() {
   try {
     const response = await fetch(LOCAL_NOTES_URL, {
@@ -108,6 +120,13 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     if (!url) return;
     const match = url.match(/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
     if (!match) return;
+    // 发送 URL 让后端走匿名解析链路（补全正文、配图、分类），而非保存空壳笔记
+    try {
+      await importNoteRaw(url);
+      return;
+    } catch {
+      // 降级：至少保存链接
+    }
     noteData = {
       id: match[1],
       sourceUrl: url,
