@@ -6,6 +6,9 @@ const PAGE_DATA_REQUEST_EVENT = 'kanbox-note-capture-request';
 let cachedPageData = null;
 let requestedNoteId = '';
 let savedNoteIds = new Set();
+// 由 page-data.js（MAIN world）通过 postMessage 桥接过来的 xsec_token 映射。
+// 不能在这里直接读 window.__INITIAL_STATE__（ISOLATED world 读不到页面主世界的全局变量）。
+let xsecTokenMap = {};
 
 // Platform detection
 function detectPlatform() {
@@ -150,38 +153,13 @@ function noteCardFromDragTarget(target) {
   }
 }
 
-// 从 window.__INITIAL_STATE__（或 SSR 状态）里按 noteId 找 xsecToken。
-// 小红书搜索/推荐流的 noteCard 里同时带 id 与 xsecToken 字段。
+// 从 page-data.js（MAIN world）桥接过来的 token map 里按 noteId 找 xsecToken。
+// 不能在这里直接读 window.__INITIAL_STATE__：content.js 运行在 ISOLATED world，
+// 读不到页面 MAIN world 设置的该全局变量（这是上一版 token 永远提取不到的根因）。
 function findXsecTokenById(noteId) {
   if (!noteId) return '';
-  const roots = [
-    window.__INITIAL_STATE__,
-    window.__INITIAL_SSR_STATE__,
-  ];
-  const queue = roots.filter((root) => root && typeof root === 'object');
-  const visited = new WeakSet();
-  let inspected = 0;
-  while (queue.length && inspected < 30000) {
-    const value = queue.shift();
-    if (!value || typeof value !== 'object' || visited.has(value)) continue;
-    visited.add(value);
-    inspected += 1;
-
-    if (String(value?.id).toLowerCase() === noteId.toLowerCase() && typeof value?.xsecToken === 'string' && value.xsecToken) {
-      return value.xsecToken;
-    }
-
-    let entries;
-    try {
-      entries = Array.isArray(value) ? value : Object.values(value);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry && typeof entry === 'object') queue.push(entry);
-    }
-  }
-  return '';
+  const token = xsecTokenMap[String(noteId).toLowerCase()];
+  return typeof token === 'string' ? token : '';
 }
 
 function firstText(selectors) {
@@ -585,6 +563,9 @@ window.addEventListener('message', (event) => {
   if (event.data?.source !== PAGE_DATA_SOURCE) return;
   if (event.data.payload?.id === getNoteId()) {
     cachedPageData = event.data.payload;
+  }
+  if (event.data?.xsecTokens && typeof event.data.xsecTokens === 'object') {
+    xsecTokenMap = event.data.xsecTokens;
   }
 });
 

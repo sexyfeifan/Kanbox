@@ -666,7 +666,11 @@ async function importNote(body = {}) {
         normalized = normalizeImportedNote(await resolveAnonymousNote(sourceUrl));
       } else {
         const noteId = extractNoteIdFromUrl(sourceUrl);
-        if (!noteId) throw error;
+        if (!noteId) {
+          // 不是可识别的笔记链接（可能是搜索页 URL 或非笔记页面）。
+          // 借鉴原始项目的明确指引，告诉用户正确的导入方式，而不是含糊的「需要匿名解析正文」。
+          throw new Error('没有识别到小红书笔记链接。请打开笔记详情页拖动右下角的「拖到 Kanbox」按钮，或从小红书搜索结果页直接拖动笔记卡片');
+        }
         normalized = normalizeImportedNote(await resolveAnonymousNote(sourceUrl, {
           expectedNoteId: noteId,
         }));

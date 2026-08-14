@@ -192,7 +192,7 @@ function notePayloadFromHtml(html, noteId, sourceUrl) {
     // 小红书对匿名访问的详情页，缺少 xsec_token 时返回 404「页面不见了」或空 noteDetailMap。
     const looksBlocked = /页面不见了|暂时无法浏览|sec_/i.test(html) || html.includes('"noteDetailMap":{}');
     if (looksBlocked) {
-      throw new Error('匿名访问被小红书拦截：这条链接缺少访问凭证。请从小红书搜索结果页直接拖动笔记卡片，或复制 App 分享链接（含 xsec_token），再试一次');
+      throw new Error('这条链接缺少访问凭证，匿名访问被小红书拦截。请改用以下任一方式导入：① 打开笔记详情页，拖动右下角「拖到 Kanbox」按钮；② 从小红书搜索结果页直接拖动笔记卡片；③ 复制 App 分享链接（自带凭证）后粘贴');
     }
     throw new Error('匿名解析没有读到完整笔记；不会切换到你的登录浏览器');
   }

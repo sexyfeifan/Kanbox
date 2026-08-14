@@ -162,8 +162,54 @@
     };
   }
 
+  // 收集页面状态里所有笔记的 xsec_token（小红书 2026 起详情页必须带 token 才能匿名访问）。
+  // 此脚本运行在 MAIN world，能读到页面 JS 设置的 window.__INITIAL_STATE__。
+  // content.js 运行在 ISOLATED world 读不到，所以这里收集后随 postMessage 桥接过去。
+  function collectXsecTokens() {
+    const tokens = new Map();
+    const roots = [
+      window.__INITIAL_STATE__,
+      window.__INITIAL_SSR_STATE__,
+      window.__NUXT__,
+    ];
+    const queue = roots.filter((root) => root && typeof root === 'object');
+    const visited = new WeakSet();
+    let inspected = 0;
+    while (queue.length && inspected < 50000) {
+      const value = queue.shift();
+      if (!value || typeof value !== 'object' || visited.has(value)) continue;
+      visited.add(value);
+      inspected += 1;
+
+      const id = firstString(value, ['id', 'noteId', 'note_id']);
+      if (/^[0-9a-f]{24}$/i.test(id)) {
+        const token = typeof value.xsecToken === 'string' && value.xsecToken
+          ? value.xsecToken
+          : typeof value.xsec_token === 'string' && value.xsec_token
+            ? value.xsec_token
+            : '';
+        if (token && !tokens.has(id.toLowerCase())) tokens.set(id.toLowerCase(), token);
+      }
+
+      let entries;
+      try {
+        entries = Array.isArray(value) ? value : Object.values(value);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry && typeof entry === 'object') queue.push(entry);
+      }
+    }
+    return tokens.size ? Object.fromEntries(tokens) : null;
+  }
+
   function publish() {
-    window.postMessage({ source: SOURCE, payload: capturePageData() }, location.origin);
+    window.postMessage({
+      source: SOURCE,
+      payload: capturePageData(),
+      xsecTokens: collectXsecTokens(),
+    }, location.origin);
   }
 
   document.addEventListener(REQUEST_EVENT, publish);
