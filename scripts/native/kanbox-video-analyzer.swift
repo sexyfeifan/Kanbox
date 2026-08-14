@@ -167,6 +167,45 @@ func groupTranscriptSegments(_ tokens: [TranscriptSegment]) -> [TranscriptSegmen
     return groups
 }
 
+struct ExtractAudioResult: Codable {
+    let audioPath: String?
+    let duration: Double
+    let error: String?
+}
+
+func extractFullAudio(videoURL: URL, outputURL: URL) -> String? {
+    let asset = AVURLAsset(url: videoURL)
+    guard !asset.tracks(withMediaType: .audio).isEmpty else {
+        return "视频没有可识别的音轨"
+    }
+    guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+        return "系统无法读取视频音轨"
+    }
+    exporter.outputURL = outputURL
+    exporter.outputFileType = .m4a
+    exporter.shouldOptimizeForNetworkUse = false
+    var finished = false
+    exporter.exportAsynchronously { finished = true }
+    guard waitUntil({ finished }, timeout: 300) else {
+        exporter.cancelExport()
+        return "提取视频音轨超时"
+    }
+    guard exporter.status == .completed else {
+        return exporter.error?.localizedDescription ?? "提取视频音轨失败"
+    }
+    return nil
+}
+
+func printJSON<T: Encodable>(_ value: T) {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.withoutEscapingSlashes]
+    guard let data = try? encoder.encode(value), let output = String(data: data, encoding: .utf8) else {
+        print("{\"error\":\"分析结果编码失败\"}")
+        return
+    }
+    print(output)
+}
+
 func printJSON(_ result: AnalysisResult) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.withoutEscapingSlashes]
@@ -177,12 +216,27 @@ func printJSON(_ result: AnalysisResult) {
     print(output)
 }
 
-guard CommandLine.arguments.count == 2 else {
+guard CommandLine.arguments.count >= 2 else {
     printJSON(AnalysisResult(
         duration: 0,
         transcriptSegments: [],
         speechError: "缺少视频文件路径"
     ))
+    exit(0)
+}
+
+// 模式一：--extract-audio <video> <output.m4a> —— 仅提取音轨文件（供在线大模型转写），不本地识别
+if CommandLine.arguments[1] == "--extract-audio" && CommandLine.arguments.count >= 4 {
+    let videoURL = URL(fileURLWithPath: CommandLine.arguments[2])
+    let outputURL = URL(fileURLWithPath: CommandLine.arguments[3])
+    let asset = AVURLAsset(url: videoURL)
+    let rawDuration = CMTimeGetSeconds(asset.duration)
+    let duration = rawDuration.isFinite && rawDuration > 0 ? rawDuration : 0
+    if let extractError = extractFullAudio(videoURL: videoURL, outputURL: outputURL) {
+        printJSON(ExtractAudioResult(audioPath: nil, duration: duration, error: extractError))
+    } else {
+        printJSON(ExtractAudioResult(audioPath: outputURL.path, duration: duration, error: nil))
+    }
     exit(0)
 }
 

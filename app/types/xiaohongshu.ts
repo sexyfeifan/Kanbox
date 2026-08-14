@@ -23,6 +23,10 @@ export interface Note {
     text: string;
   }>;
   transcriptSkipped?: boolean;
+  transcriptEngine?: 'ai' | 'local';
+  aiSummary?: string;
+  aiSummaryEngine?: 'ai' | 'local';
+  aiExpansion?: string;
   videoStatus?: 'pending' | 'ready' | 'partial' | 'none';
   videoError?: string;
   mediaStatus?: 'pending' | 'ready' | 'partial' | 'none';

@@ -13,11 +13,14 @@ import { summarizeNote } from './lib/text-summary.mjs';
 import {
   expandWithAi,
   isAiConfigured,
+  isTranscriptEnhanceConfigured,
   loadAiSettings,
   maskAiSettings,
   saveAiSettings,
   summarizeWithAi,
   testAi,
+  testTranscription,
+  transcribeWithAi,
 } from './lib/ai-service.mjs';
 import { localizeNoteMedia } from './lib/media-import.mjs';
 import { localizeNoteVideo, reanalyzeStoredNoteVideo } from './lib/video-import.mjs';
@@ -713,11 +716,7 @@ async function importNote(body = {}) {
     publicBaseUrl,
   });
   const aiSettings = await loadAiSettings(dataDirectory);
-  const imported = await localizeNoteVideo(withImages, {
-    mediaDirectory,
-    publicBaseUrl,
-    skipTranscript: aiSettings.autoTranscript === false,
-  });
+  const imported = await localizeNoteVideo(withImages, buildTranscriptOptions(aiSettings));
   const note = {
     ...imported,
     category: inferCategoryFromNote(imported),
@@ -807,15 +806,27 @@ function queueNoteDelete(noteId) {
   return queueMutation(() => deleteNote(noteId));
 }
 
+/** 根据 AI 设置构造视频转写选项（本地 / 在线大模型增强）。 */
+function buildTranscriptOptions(aiSettings) {
+  const options = {
+    mediaDirectory,
+    publicBaseUrl,
+    skipTranscript: aiSettings.autoTranscript === false,
+    enhanceTranscript: isTranscriptEnhanceConfigured(aiSettings),
+  };
+  if (options.enhanceTranscript) {
+    options.transcribeAudio = (audioPath) => transcribeWithAi(aiSettings, audioPath);
+  }
+  return options;
+}
+
 async function reanalyzeNoteVideo(noteId) {
   const notes = await readNotes();
   const noteIndex = notes.findIndex((note) => note.id === noteId);
   if (noteIndex < 0) return null;
 
-  const updatedNote = await reanalyzeStoredNoteVideo(notes[noteIndex], {
-    mediaDirectory,
-    publicBaseUrl,
-  });
+  const aiSettings = await loadAiSettings(dataDirectory);
+  const updatedNote = await reanalyzeStoredNoteVideo(notes[noteIndex], buildTranscriptOptions(aiSettings));
   const updatedNotes = [...notes];
   updatedNotes[noteIndex] = updatedNote;
   await writeNotes(updatedNotes);
@@ -1016,33 +1027,50 @@ const server = createServer(async (request, response) => {
     const summaryNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/summary$/i);
     if ((request.method === 'GET' || request.method === 'POST') && summaryNoteMatch) {
       const notes = await readNotes();
-      const note = notes.find((n) => n.id === summaryNoteMatch[1].toLowerCase());
-      if (!note) {
+      const noteIndex = notes.findIndex((n) => n.id === summaryNoteMatch[1].toLowerCase());
+      if (noteIndex < 0) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
       }
+      const note = notes[noteIndex];
       const aiSettings = await loadAiSettings(dataDirectory);
+      let summary;
+      let engine;
       if (isAiConfigured(aiSettings)) {
-        const summary = await summarizeWithAi(aiSettings, note);
-        sendJson(request, response, 200, { ok: true, summary, engine: 'ai' });
+        summary = await summarizeWithAi(aiSettings, note);
+        engine = 'ai';
       } else {
-        const summary = summarizeNote(note);
-        sendJson(request, response, 200, { ok: true, summary, engine: 'local' });
+        summary = summarizeNote(note);
+        engine = 'local';
       }
+      // 持久化到笔记，关闭窗口后重开无需重新生成
+      const updatedNote = { ...note, aiSummary: summary, aiSummaryEngine: engine };
+      const updatedNotes = [...notes];
+      updatedNotes[noteIndex] = updatedNote;
+      await writeNotes(updatedNotes);
+      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+      sendJson(request, response, 200, { ok: true, summary, engine, note: updatedNote });
       return;
     }
 
     const expandNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/expand$/i);
     if (request.method === 'POST' && expandNoteMatch) {
       const notes = await readNotes();
-      const note = notes.find((n) => n.id === expandNoteMatch[1].toLowerCase());
-      if (!note) {
+      const noteIndex = notes.findIndex((n) => n.id === expandNoteMatch[1].toLowerCase());
+      if (noteIndex < 0) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
       }
+      const note = notes[noteIndex];
       const aiSettings = await loadAiSettings(dataDirectory);
       const expansion = await expandWithAi(aiSettings, note);
-      sendJson(request, response, 200, { ok: true, expansion });
+      // 持久化到笔记，关闭窗口后重开无需重新生成
+      const updatedNote = { ...note, aiExpansion: expansion };
+      const updatedNotes = [...notes];
+      updatedNotes[noteIndex] = updatedNote;
+      await writeNotes(updatedNotes);
+      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+      sendJson(request, response, 200, { ok: true, expansion, note: updatedNote });
       return;
     }
 
@@ -1055,10 +1083,13 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/ai/settings') {
       const body = await readRequestBody(request);
       const aiSettings = await loadAiSettings(dataDirectory);
-      // 前端提交时 apiKey 为空字符串表示「保持原密钥不变」（脱敏显示）。
+      // 前端提交时 apiKey/transcribeApiKey 为空字符串表示「保持原密钥不变」（脱敏显示）。
       const updates = { ...body };
       if (updates && typeof updates.apiKey === 'string' && updates.apiKey.trim() === '') {
         delete updates.apiKey;
+      }
+      if (updates && typeof updates.transcribeApiKey === 'string' && updates.transcribeApiKey.trim() === '') {
+        delete updates.transcribeApiKey;
       }
       const saved = await saveAiSettings(dataDirectory, { ...aiSettings, ...updates });
       sendJson(request, response, 200, { ok: true, settings: maskAiSettings(saved) });
@@ -1073,6 +1104,18 @@ const server = createServer(async (request, response) => {
         candidate.apiKey = aiSettings.apiKey;
       }
       const reply = await testAi(candidate);
+      sendJson(request, response, 200, { ok: true, reply });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/ai/test-transcribe') {
+      const body = await readRequestBody(request);
+      const aiSettings = await loadAiSettings(dataDirectory);
+      const candidate = { ...aiSettings, ...body };
+      if (typeof candidate.transcribeApiKey === 'string' && candidate.transcribeApiKey.trim() === '') {
+        candidate.transcribeApiKey = aiSettings.transcribeApiKey;
+      }
+      const reply = await testTranscription(candidate);
       sendJson(request, response, 200, { ok: true, reply });
       return;
     }

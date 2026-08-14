@@ -7,8 +7,11 @@ import path from 'node:path';
 import {
   buildNoteText,
   isAiConfigured,
+  isTranscriptEnhanceConfigured,
   loadAiSettings,
   maskAiSettings,
+  normalizeTranscriptResult,
+  resolveTranscriptSettings,
   saveAiSettings,
 } from './ai-service.mjs';
 
@@ -66,7 +69,74 @@ test('loadAiSettings 在 settings.json 缺失时返回默认值', async () => {
     assert.equal(loaded.enabled, false);
     assert.equal(loaded.model, 'gpt-4o-mini');
     assert.equal(loaded.autoTranscript, true);
+    assert.equal(loaded.enhanceTranscript, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('resolveTranscriptSettings 转写专用字段优先，留空回退 AI 摘要配置，模型兜底 whisper-1', () => {
+  const withDedicated = resolveTranscriptSettings({
+    endpoint: 'https://summary/v1',
+    apiKey: 'summary-key',
+    model: 'gpt-4o-mini',
+    transcribeEndpoint: 'https://stt/v1',
+    transcribeApiKey: 'stt-key',
+    transcribeModel: 'whisper-1',
+  });
+  assert.deepEqual(withDedicated, { endpoint: 'https://stt/v1', apiKey: 'stt-key', model: 'whisper-1' });
+
+  const fallback = resolveTranscriptSettings({
+    endpoint: 'https://summary/v1',
+    apiKey: 'summary-key',
+    model: 'mimo-v2.5-pro',
+    transcribeEndpoint: '',
+    transcribeApiKey: '',
+    transcribeModel: '',
+  });
+  assert.deepEqual(fallback, { endpoint: 'https://summary/v1', apiKey: 'summary-key', model: 'mimo-v2.5-pro' });
+
+  const noModel = resolveTranscriptSettings({ endpoint: 'https://summary/v1', apiKey: 'k' });
+  assert.equal(noModel.model, 'whisper-1');
+});
+
+test('isTranscriptEnhanceConfigured 需 enhanceTranscript=true 且配置齐全', () => {
+  assert.equal(isTranscriptEnhanceConfigured({ enhanceTranscript: false }), false);
+  assert.equal(isTranscriptEnhanceConfigured({ enhanceTranscript: true, endpoint: '', apiKey: '' }), false);
+  assert.equal(isTranscriptEnhanceConfigured({ enhanceTranscript: true, endpoint: 'https://x/v1', apiKey: 'k', model: 'whisper-1' }), true);
+  assert.equal(isTranscriptEnhanceConfigured({ enhanceTranscript: true, transcribeEndpoint: 'https://x/v1', transcribeApiKey: 'k' }), true);
+});
+
+test('normalizeTranscriptResult 规整 verbose_json 与纯 text 两种返回', () => {
+  const verbose = normalizeTranscriptResult({
+    text: '第一句 第二句',
+    segments: [
+      { start: 0, end: 2.5, text: '第一句' },
+      { start: 2.5, end: 5, text: '第二句' },
+    ],
+  });
+  assert.equal(verbose.text, '第一句 第二句');
+  assert.equal(verbose.segments.length, 2);
+  assert.equal(verbose.segments[0].duration, 2.5);
+
+  const plain = normalizeTranscriptResult({ text: '只有一段' });
+  assert.equal(plain.text, '只有一段');
+  assert.equal(plain.segments.length, 1);
+  assert.equal(plain.segments[0].text, '只有一段');
+
+  assert.equal(normalizeTranscriptResult({}).text, '');
+  assert.equal(normalizeTranscriptResult({}).segments.length, 0);
+});
+
+test('maskAiSettings 同时脱敏转写密钥', () => {
+  const masked = maskAiSettings({
+    enabled: true,
+    endpoint: 'https://x/v1',
+    apiKey: 'summary-key',
+    transcribeApiKey: 'stt-key',
+  });
+  assert.equal(masked.apiKey, '');
+  assert.equal(masked.transcribeApiKey, '');
+  assert.equal(masked.apiKeySet, true);
+  assert.equal(masked.transcribeApiKeySet, true);
 });

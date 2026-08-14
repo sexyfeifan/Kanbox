@@ -17,6 +17,10 @@ const DEFAULT_AI_SETTINGS = {
   apiKey: '',
   model: 'gpt-4o-mini',
   autoTranscript: true,  // 导入视频时是否自动转写语音（本地 macOS Vision）
+  enhanceTranscript: false,   // 音转文字增强：开启后用在线大模型转写（更准确）
+  transcribeEndpoint: '',     // 音转文字接口地址（留空则复用上方 AI 摘要接口）
+  transcribeApiKey: '',       // 音转文字接口密钥（留空则复用上方 AI 摘要密钥）
+  transcribeModel: '',        // 音转文字模型（留空则回退 whisper-1）
 };
 
 const MAX_PROMPT_CHARS = 8000;
@@ -75,6 +79,137 @@ function normalizeEndpoint(endpoint) {
   let base = String(endpoint || '').trim().replace(/\/+$/, '');
   if (/\/chat\/completions$/i.test(base)) return base;
   return `${base}/chat/completions`;
+}
+
+/**
+ * 解析「音转文字增强」实际使用的接口配置：
+ * 转写专用字段（transcribeEndpoint/transcribeApiKey/transcribeModel）优先，
+ * 留空时回退到 AI 摘要/拓展的 endpoint/apiKey/model，模型再兜底 whisper-1。
+ */
+export function resolveTranscriptSettings(aiSettings) {
+  const source = aiSettings || {};
+  return {
+    endpoint: String(source.transcribeEndpoint || source.endpoint || '').trim(),
+    apiKey: String(source.transcribeApiKey || source.apiKey || '').trim(),
+    model: String(source.transcribeModel || source.model || 'whisper-1').trim(),
+  };
+}
+
+/** 判断「音转文字增强」是否已开启且配置可用。 */
+export function isTranscriptEnhanceConfigured(aiSettings) {
+  if (!aiSettings || aiSettings.enhanceTranscript !== true) return false;
+  const resolved = resolveTranscriptSettings(aiSettings);
+  return Boolean(resolved.endpoint && resolved.apiKey && resolved.model);
+}
+
+function normalizeTranscriptionEndpoint(endpoint) {
+  let base = String(endpoint || '').trim().replace(/\/+$/, '');
+  if (/\/audio\/transcriptions$/i.test(base)) return base;
+  return `${base}/audio/transcriptions`;
+}
+
+/** 将 Whiser/OpenAI 兼容的转录结果规整为 { text, segments }。 */
+export function normalizeTranscriptResult(payload) {
+  const raw = payload && typeof payload === 'object' ? payload : {};
+  const text = typeof raw.text === 'string' ? raw.text.trim() : '';
+  let segments = [];
+  if (Array.isArray(raw.segments) && raw.segments.length > 0) {
+    segments = raw.segments
+      .map((seg) => {
+        const start = Number.isFinite(seg?.start) ? Math.max(0, seg.start) : 0;
+        const end = Number.isFinite(seg?.end) ? seg.end : start;
+        const segmentText = typeof seg?.text === 'string' ? seg.text.trim() : '';
+        return segmentText ? { start, duration: Math.max(0, end - start), text: segmentText } : null;
+      })
+      .filter(Boolean);
+  }
+  if (!segments.length && text) {
+    segments = [{ start: 0, duration: 0, text }];
+  }
+  return { text, segments };
+}
+
+/**
+ * 用在线大模型（Whisper / OpenAI 兼容 `/audio/transcriptions`）转写音频。
+ * @param {object} aiSettings AI 设置（含增强开关与转写接口字段）
+ * @param {string|Buffer} audioPath 本地音频文件路径
+ */
+export async function transcribeWithAi(aiSettings, audioPath, options = {}) {
+  if (!isTranscriptEnhanceConfigured(aiSettings)) {
+    throw new Error('音转文字增强尚未配置，请先在设置里填写接口地址、密钥和模型');
+  }
+  const resolved = resolveTranscriptSettings(aiSettings);
+  const url = normalizeTranscriptionEndpoint(resolved.endpoint);
+  const audioBuffer = typeof audioPath === 'string' ? await readFile(audioPath) : audioPath;
+  const fileName = typeof audioPath === 'string' ? path.basename(audioPath) : 'audio.m4a';
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 300_000);
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), fileName);
+    form.append('model', resolved.model);
+    form.append('response_format', 'verbose_json');
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resolved.apiKey}` },
+      body: form,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
+    }
+    return normalizeTranscriptResult(await response.json());
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('音转文字接口请求超时');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 测试音转文字接口是否可用（用极小的一段静音音频做连通性探测）。 */
+export async function testTranscription(aiSettings) {
+  if (!isTranscriptEnhanceConfigured(aiSettings)) {
+    throw new Error('音转文字增强尚未配置，请先在设置里填写接口地址、密钥和模型');
+  }
+  const resolved = resolveTranscriptSettings(aiSettings);
+  const url = normalizeTranscriptionEndpoint(resolved.endpoint);
+  // 生成一段 0.2 秒的静音 WAV（PCM 16-bit mono 8kHz）作为连通性测试音频
+  const sampleRate = 8000;
+  const sampleCount = Math.floor(sampleRate * 0.2);
+  const wav = Buffer.alloc(44 + sampleCount * 2);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + sampleCount * 2, 4); wav.write('WAVE', 8);
+  wav.write('fmt ', 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write('data', 36); wav.writeUInt32LE(sampleCount * 2, 40);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([wav], { type: 'audio/wav' }), 'probe.wav');
+    form.append('model', resolved.model);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resolved.apiKey}` },
+      body: form,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
+    }
+    return await response.text();
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('音转文字接口请求超时');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function truncateText(value, maxChars = MAX_PROMPT_CHARS) {
@@ -175,7 +310,8 @@ export async function testAi(aiSettings) {
 
 /** 返回「脱敏」后的设置（不直接回传密钥原文，仅标记是否已设置）。 */
 export function maskAiSettings(aiSettings) {
-  const masked = { ...aiSettings, apiKey: '' };
+  const masked = { ...aiSettings, apiKey: '', transcribeApiKey: '' };
   masked.apiKeySet = Boolean(aiSettings.apiKey && String(aiSettings.apiKey).trim());
+  masked.transcribeApiKeySet = Boolean(aiSettings.transcribeApiKey && String(aiSettings.transcribeApiKey).trim());
   return masked;
 }

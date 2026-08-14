@@ -104,6 +104,28 @@ export async function runNativeVideoAnalyzer(videoPath, analyzerPath = findNativ
   return result;
 }
 
+/**
+ * 从视频中仅提取音轨为 m4a 文件（不本地转写），供在线大模型转写使用。
+ * 返回 { audioPath, duration }。
+ */
+export async function extractVideoAudio(videoPath, analyzerPath = findNativeAnalyzer(), outputPath = '') {
+  if (process.platform !== 'darwin') throw new Error('音转文字增强目前仅支持 macOS');
+  if (!analyzerPath) throw new Error('本地视频分析组件未安装');
+  const audioPath = outputPath || path.join(path.dirname(videoPath), 'audio.m4a');
+  const { stdout } = await execFileAsync(analyzerPath, ['--extract-audio', videoPath, audioPath], {
+    timeout: 10 * 60_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  let result;
+  try {
+    result = JSON.parse(stdout);
+  } catch {
+    throw new Error('提取视频音轨没有返回有效结果');
+  }
+  if (!result || result.error) throw new Error(result?.error || '提取视频音轨失败');
+  return { audioPath: result.audioPath || audioPath, duration: Number.isFinite(result.duration) ? result.duration : 0 };
+}
+
 function cleanTranscriptSegments(value) {
   if (!Array.isArray(value)) return [];
   return value.map((entry) => ({
@@ -113,7 +135,7 @@ function cleanTranscriptSegments(value) {
   })).filter((entry) => entry.text);
 }
 
-export function applyVideoAnalysis(note, analysis, localVideoUrl) {
+export function applyVideoAnalysis(note, analysis, localVideoUrl, transcriptEngine = 'local') {
   const transcriptSegments = cleanTranscriptSegments(analysis.transcriptSegments);
   const transcriptText = transcriptSegments.map((entry) => entry.text).join('\n\n');
   const warnings = [analysis.speechError].filter(Boolean).join('；');
@@ -123,6 +145,7 @@ export function applyVideoAnalysis(note, analysis, localVideoUrl) {
     videoDuration: Number.isFinite(analysis.duration) ? analysis.duration : 0,
     transcriptText,
     transcriptSegments,
+    transcriptEngine,
     videoStatus: warnings ? 'partial' : 'ready',
     videoError: warnings,
   };
@@ -131,13 +154,40 @@ export function applyVideoAnalysis(note, analysis, localVideoUrl) {
   return updated;
 }
 
+/**
+ * 统一转写入口：根据 options 决定走「在线大模型」还是「本地 macOS」。
+ * - options.transcribeAudio 为函数且 options.enhanceTranscript 为 true → 在线转写
+ * - 否则走本地 analyzer
+ * 返回 { analysis, transcriptEngine }，analysis 与本地形状一致（duration/transcriptSegments/speechError）。
+ */
+async function runVideoTranscription(videoPath, options) {
+  if (options.enhanceTranscript && typeof options.transcribeAudio === 'function') {
+    const { audioPath, duration } = await extractVideoAudio(videoPath, options.analyzerPath);
+    try {
+      const result = await options.transcribeAudio(audioPath);
+      return {
+        analysis: {
+          duration,
+          transcriptSegments: result?.segments || [],
+          speechError: '',
+        },
+        transcriptEngine: 'ai',
+      };
+    } finally {
+      await rm(audioPath, { force: true }).catch(() => {});
+    }
+  }
+  const analysis = await (options.analyzer || runNativeVideoAnalyzer)(videoPath);
+  return { analysis, transcriptEngine: 'local' };
+}
+
 export async function reanalyzeStoredNoteVideo(note, options) {
   if (note.type !== 'video') throw new Error('这条笔记不是视频');
   const videoPath = path.join(options.mediaDirectory, note.id, 'video.mp4');
   if (!existsSync(videoPath)) throw new Error('本地视频文件不存在');
-  const analysis = await (options.analyzer || runNativeVideoAnalyzer)(videoPath);
+  const { analysis, transcriptEngine } = await runVideoTranscription(videoPath, options);
   const localVideoUrl = `${options.publicBaseUrl}/media/${note.id}/video.mp4`;
-  return applyVideoAnalysis(note, analysis, localVideoUrl);
+  return applyVideoAnalysis(note, analysis, localVideoUrl, transcriptEngine);
 }
 
 export async function localizeNoteVideo(note, options) {
@@ -189,8 +239,8 @@ export async function localizeNoteVideo(note, options) {
     };
   }
   try {
-    const analysis = await (options.analyzer || runNativeVideoAnalyzer)(videoPath);
-    return applyVideoAnalysis({ ...note, sourceVideoUrl }, analysis, localVideoUrl);
+    const { analysis, transcriptEngine } = await runVideoTranscription(videoPath, options);
+    return applyVideoAnalysis({ ...note, sourceVideoUrl }, analysis, localVideoUrl, transcriptEngine);
   } catch (error) {
     return {
       ...note,

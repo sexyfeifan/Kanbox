@@ -60,7 +60,12 @@ export type AiSettings = {
   apiKey: string;
   model: string;
   autoTranscript: boolean;
+  enhanceTranscript: boolean;
+  transcribeEndpoint: string;
+  transcribeApiKey: string;
+  transcribeModel: string;
   apiKeySet?: boolean;
+  transcribeApiKeySet?: boolean;
 };
 
 type NotesResponse = {
@@ -137,6 +142,10 @@ function normalizeNote(note: Partial<Note>): Note {
     transcriptText: typeof note.transcriptText === 'string' ? note.transcriptText : '',
     transcriptSegments: Array.isArray(note.transcriptSegments) ? note.transcriptSegments : [],
     transcriptSkipped: note.transcriptSkipped === true,
+    transcriptEngine: note.transcriptEngine === 'ai' ? 'ai' : note.transcriptEngine === 'local' ? 'local' : undefined,
+    aiSummary: typeof note.aiSummary === 'string' ? note.aiSummary : '',
+    aiSummaryEngine: note.aiSummaryEngine === 'ai' ? 'ai' : note.aiSummaryEngine === 'local' ? 'local' : undefined,
+    aiExpansion: typeof note.aiExpansion === 'string' ? note.aiExpansion : '',
     videoStatus: note.videoStatus,
     videoError: note.videoError,
     author: {
@@ -489,22 +498,22 @@ export async function deleteTag(name: string): Promise<{ notes: Note[]; deletedC
   return { notes: response.notes, deletedCount: payload.deletedCount };
 }
 
-export async function getNoteSummary(noteId: string): Promise<string> {
-  const data = await fetchLocalApi<{ ok: boolean; summary: string; engine?: 'ai' | 'local' }>(
+export async function getNoteSummary(noteId: string): Promise<{ summary: string; note: Note }> {
+  const data = await fetchLocalApi<{ ok: boolean; summary: string; engine?: 'ai' | 'local'; note?: RawNote }>(
     `/notes/${noteId}/summary`,
     { method: 'POST' },
     90_000,
   );
-  return data.summary || '';
+  return { summary: data.summary || '', note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note };
 }
 
-export async function getNoteExpansion(noteId: string): Promise<string> {
-  const data = await fetchLocalApi<{ ok: boolean; expansion: string }>(
+export async function getNoteExpansion(noteId: string): Promise<{ expansion: string; note: Note }> {
+  const data = await fetchLocalApi<{ ok: boolean; expansion: string; note?: RawNote }>(
     `/notes/${noteId}/expand`,
     { method: 'POST' },
     90_000,
   );
-  return data.expansion || '';
+  return { expansion: data.expansion || '', note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note };
 }
 
 export async function transcribeNoteVideo(noteId: string): Promise<{ notes: Note[]; note: Note }> {
@@ -534,6 +543,14 @@ export async function saveAiSettings(settings: Partial<AiSettings>): Promise<AiS
 
 export async function testAiConnection(settings: Partial<AiSettings>): Promise<string> {
   const data = await fetchLocalApi<{ ok: boolean; reply: string }>('/ai/test', {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  }, 35_000);
+  return data.reply;
+}
+
+export async function testTranscribeConnection(settings: Partial<AiSettings>): Promise<string> {
+  const data = await fetchLocalApi<{ ok: boolean; reply: string }>('/ai/test-transcribe', {
     method: 'POST',
     body: JSON.stringify(settings),
   }, 35_000);
