@@ -15,6 +15,7 @@ const NOTE_PATH_PATTERNS = [
   /^\/explore\/([0-9a-f]{24})(?:\/|$)/i,
   /^\/search_result\/([0-9a-f]{24})(?:\/|$)/i,
   /^\/discovery\/item\/([0-9a-f]{24})(?:\/|$)/i,
+  /^\/user\/profile\/[0-9a-f]{24}\/([0-9a-f]{24})(?:\/|$)/i,
 ];
 
 function extractUrls(input) {
@@ -141,7 +142,13 @@ export function normalizeImportedNote(payload) {
 
   const sharedUrl = extractSharedNoteUrl(cleanText(payload.sourceUrl, 5000));
   const sourceUrlObject = new URL(sharedUrl);
-  sourceUrlObject.search = '';
+  // 保留 xsec_token / xsec_source（小红书 2026 反爬必需），清除其他追踪参数
+  const keepParams = new URLSearchParams();
+  for (const key of ['xsec_token', 'xsec_source']) {
+    const val = sourceUrlObject.searchParams.get(key);
+    if (val) keepParams.set(key, val);
+  }
+  sourceUrlObject.search = keepParams.toString() ? `?${keepParams.toString()}` : '';
   sourceUrlObject.hash = '';
   const sourceUrl = sourceUrlObject.toString();
   const noteId = extractNoteIdFromUrl(sourceUrl) || cleanText(payload.id, 100);

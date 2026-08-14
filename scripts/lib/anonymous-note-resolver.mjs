@@ -270,8 +270,10 @@ export async function resolveAnonymousNote(sourceUrl, options = {}) {
   }
 
   const url = assertAllowedPageUrl(pageUrl);
-  const noteId = options.expectedNoteId || url.pathname
-    .match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1];
+  const noteId = options.expectedNoteId || [
+    /^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i,
+    /^\/user\/profile\/[0-9a-f]{24}\/([0-9a-f]{24})(?:\/|$)/i,
+  ].map((pattern) => url.pathname.match(pattern)?.[1] || '').find(Boolean);
   if (!noteId || !/^[0-9a-f]{24}$/i.test(noteId)) {
     throw new Error('匿名解析器没有识别到笔记 ID');
   }

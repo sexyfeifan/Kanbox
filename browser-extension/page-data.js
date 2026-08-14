@@ -3,7 +3,11 @@
   const REQUEST_EVENT = 'kanbox-note-capture-request';
 
   function noteIdFromLocation() {
-    return location.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1] || '';
+    const patterns = [
+      /^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i,
+      /^\/user\/profile\/[0-9a-f]{24}\/([0-9a-f]{24})(?:\/|$)/i,
+    ];
+    return patterns.map((pattern) => location.pathname.match(pattern)?.[1] || '').find(Boolean) || '';
   }
 
   function cleanString(value) {
@@ -88,10 +92,10 @@
 
   function looksLikeCurrentNote(value, noteId) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const candidateId = firstString(value, ['noteId', 'note_id', 'id']);
-    if (candidateId !== noteId) return false;
+    const candidateId = firstString(value, ['noteId', 'note_id', 'id']).toLowerCase();
+    if (candidateId !== noteId.toLowerCase()) return false;
     return Boolean(
-      firstString(value, ['title', 'displayTitle', 'desc', 'description'])
+      firstString(value, ['title', 'displayTitle', 'desc', 'description', 'content'])
       || imageUrlsFromNote(value).length,
     );
   }
@@ -137,6 +141,9 @@
     if (!noteId) return null;
 
     const roots = [
+      window.__INITIAL_STATE__,
+      window.__INITIAL_SSR_STATE__,
+      window.__NUXT__,
       window.__INITIAL_STATE__?.note,
       window.__INITIAL_SSR_STATE__?.note,
       window.__NUXT__?.note,

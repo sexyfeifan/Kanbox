@@ -96,7 +96,11 @@ setInterval(checkAndMarkSavedNotes, 30000); // Check every 30 seconds
 
 function getNoteId() {
   if (PLATFORM === 'xiaohongshu') {
-    return location.pathname.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i)?.[1] || '';
+    const patterns = [
+      /^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})(?:\/|$)/i,
+      /^\/user\/profile\/[0-9a-f]{24}\/([0-9a-f]{24})(?:\/|$)/i,
+    ];
+    return patterns.map((pattern) => location.pathname.match(pattern)?.[1] || '').find(Boolean) || '';
   }
   if (PLATFORM === 'bilibili') {
     // Bilibili note/video ID from URL
@@ -601,6 +605,7 @@ document.addEventListener('dragstart', (event) => {
   event.dataTransfer.setData('application/x-kanbox-card', payload);
   event.dataTransfer.setData('text/plain', payload);
   event.dataTransfer.setData('text/uri-list', card.sourceUrl);
+  event.stopImmediatePropagation();
 }, true);
 
 installButton();

@@ -61,7 +61,7 @@ test('normalizeImportedNote keeps visible page data only', () => {
   });
 
   assert.equal(note.id, '64cb12340000000001020304');
-  assert.equal(note.sourceUrl, 'https://www.xiaohongshu.com/explore/64cb12340000000001020304');
+  assert.equal(note.sourceUrl, 'https://www.xiaohongshu.com/explore/64cb12340000000001020304?xsec_token=abc');
   assert.equal(note.author.name, '作者');
   assert.equal(note.coverUrl, 'https://sns-webpic-qc.xhscdn.com/a.jpg');
   assert.deepEqual(note.sourceImageUrls, ['https://sns-webpic-qc.xhscdn.com/a.jpg']);
