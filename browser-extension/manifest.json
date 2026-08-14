@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kanbox · Quick Import",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Save notes from Xiaohongshu, Bilibili, Weibo, Douyin, Zhihu, Kuaishou, and Toutiao to your local Kanbox library.",
   "permissions": [
     "activeTab",
