@@ -9,6 +9,7 @@ import {
   Plus,
   Pencil,
   Check,
+  BookOpen,
   BookMarked,
   Trash2,
   Search,
@@ -590,8 +591,8 @@ function ExpandedCard({
           <h2
             onClick={() => { setEditingTitle(true); setTitleDraft(note.title); }}
             style={{
-              margin: '22px 0 10px', fontFamily: '"Playfair Display", Georgia, serif',
-              fontSize: 25, lineHeight: 1.38, fontWeight: 600, color: '#35343A', letterSpacing: '-0.02em',
+              margin: '24px 0 12px', fontFamily: '"Playfair Display", Georgia, serif',
+              fontSize: 27, lineHeight: 1.35, fontWeight: 700, color: '#35343A', letterSpacing: '-0.025em',
               cursor: 'text', borderRadius: 6, padding: '2px 4px', marginLeft: -4,
               transition: 'background 0.15s',
             }}
@@ -701,8 +702,8 @@ function ExpandedCard({
 
           {readerTab === 'note' && (
             <p style={{
-              margin: 0, fontSize: 13.5, color: '#5E5A54', lineHeight: 1.9,
-              whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+              margin: 0, fontSize: 14, color: '#4A4640', lineHeight: 2,
+              letterSpacing: '0.01em', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
             }}>
               {notePages[resolvedReaderPage] || '这条笔记没有可见正文。'}
             </p>
@@ -968,110 +969,197 @@ function ExpandedCard({
           )}
 
           {readerTab === 'note' && (
-            <div style={{ marginTop: 20, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 16 }}>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (summary) { setSummary(''); return; }
-                  setSummaryLoading(true);
-                  setSummaryError('');
-                  try {
-                    const result = await getNoteSummary(note.id);
-                    setSummary(result.summary);
-                    if (result.note) onNoteChanged(result.note);
-                  } catch (error) {
-                    setSummaryError(error instanceof Error ? error.message : '生成失败');
-                  } finally { setSummaryLoading(false); }
-                }}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  border: 'none', background: 'transparent', padding: 0, cursor: 'pointer',
-                  color: '#666159', fontSize: 12, fontWeight: 600,
+            <div style={{ marginTop: 24, borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: 20 }}>
+              {/* ── AI Summary ── */}
+              <div style={{
+                borderLeft: `3px solid ${color}`,
+                paddingLeft: 14,
+                marginBottom: 20,
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: (summary || summaryLoading) ? 10 : 8,
                 }}>
-                <span>{t('aiSummary')}</span>
-                <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
-                  {summaryLoading ? '生成中...' : summary ? '收起' : '生成'}
-                </span>
-              </button>
-              <AnimatePresence initial={false}>
-                {summary && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    style={{
-                      margin: '12px 0 0', overflow: 'hidden',
-                      color: '#5E5A54', fontSize: 12.5, lineHeight: 1.8,
-                      padding: '10px 12px', borderRadius: 10,
-                      background: 'rgba(130,153,135,0.06)', border: '1px solid rgba(130,153,135,0.1)',
-                    }}>
-                    {renderMarkdown(summary)}
-                  </motion.div>
-                )}
-                {summaryError && !summary && (
-                  <motion.p
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    style={{ margin: '12px 0 0', color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
-                    {summaryError}
-                  </motion.p>
-                )}
-              </AnimatePresence>
+                  <span style={{
+                    fontSize: 13, fontWeight: 600, color: '#4A4640',
+                    letterSpacing: '0.02em',
+                    fontFamily: '"Playfair Display", Georgia, serif',
+                  }}>
+                    {t('aiSummary')}
+                  </span>
+                  {summary && !summaryLoading && (
+                    <button
+                      type="button"
+                      onClick={() => setSummary('')}
+                      style={{
+                        border: 'none', background: 'transparent', color: '#AAA49C',
+                        fontSize: 10.5, cursor: 'pointer', padding: '2px 6px',
+                      }}
+                    >
+                      收起
+                    </button>
+                  )}
+                </div>
 
-              <button
-                type="button"
-                onClick={async () => {
-                  if (expansion) { setExpansion(''); return; }
-                  setExpansionLoading(true);
-                  setExpansionError('');
-                  try {
-                    // 视频笔记尚无文稿：先转写，再基于文稿拓展（信息更丰富）
-                    if (note.type === 'video' && !(note.transcriptSegments?.length)) {
-                      setExpansionError('视频尚未转写，正在自动转写文稿…');
-                      await onTranscribe();
-                    }
-                    let result = await getNoteExpansion(note.id);
-                    if (result.needsTranscript) {
-                      // 后端兜底：转写失败/被跳过，仍无文稿
-                      setExpansionError('视频文稿尚未生成，请先在文稿页签点击「生成文稿」后重试');
-                      return;
-                    }
-                    setExpansion(result.expansion);
-                    if (result.note) onNoteChanged(result.note);
-                  } catch (error) {
-                    setExpansionError(error instanceof Error ? error.message : '生成失败');
-                  } finally { setExpansionLoading(false); }
-                }}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  border: 'none', background: 'transparent', padding: '10px 0 0', cursor: 'pointer',
-                  color: '#666159', fontSize: 12, fontWeight: 600,
-                }}>
-                <span>{t('aiExpand')}</span>
-                <span style={{ color: '#AAA49C', fontSize: 10.5, fontWeight: 400 }}>
-                  {expansionLoading ? t('aiExpandHint') : expansion ? '收起' : '生成'}
-                </span>
-              </button>
-              <AnimatePresence initial={false}>
-                {expansion && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
+                <AnimatePresence initial={false}>
+                  {summary && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      style={{
+                        overflow: 'hidden',
+                        color: '#5E5A54', fontSize: 13, lineHeight: 1.9,
+                        padding: '12px 14px', borderRadius: 10,
+                        background: 'rgba(130,153,135,0.05)',
+                        border: '1px solid rgba(130,153,135,0.08)',
+                      }}>
+                      {renderMarkdown(summary)}
+                    </motion.div>
+                  )}
+                  {summaryError && !summary && (
+                    <motion.p
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      style={{ margin: 0, color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
+                      {summaryError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                {!summary && !summaryLoading && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setSummaryLoading(true);
+                      setSummaryError('');
+                      try {
+                        const result = await getNoteSummary(note.id);
+                        setSummary(result.summary);
+                        if (result.note) onNoteChanged(result.note);
+                      } catch (error) {
+                        setSummaryError(error instanceof Error ? error.message : '生成失败');
+                      } finally { setSummaryLoading(false); }
+                    }}
                     style={{
-                      margin: '12px 0 0', overflow: 'hidden',
-                      color: '#4F5A63', fontSize: 12.5, lineHeight: 1.8,
-                      padding: '10px 12px', borderRadius: 10,
-                      background: 'rgba(94,127,163,0.06)', border: '1px solid rgba(94,127,163,0.1)',
-                    }}>
-                    {renderMarkdown(expansion)}
-                  </motion.div>
+                      height: 30, padding: '0 14px', borderRadius: 8,
+                      border: `1px solid ${color}30`, background: `${color}08`,
+                      color: '#666159', fontSize: 11, fontWeight: 600,
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    <Sparkles size={12} strokeWidth={1.8} />
+                    生成摘要
+                  </button>
                 )}
-                {expansionError && !expansion && (
-                  <motion.p
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    style={{ margin: '12px 0 0', color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
-                    {expansionError}
-                  </motion.p>
+
+                {summaryLoading && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    color: '#9A958D', fontSize: 11.5, padding: '4px 0',
+                  }}>
+                    <Loader2 size={13} className="animate-spin" />
+                    生成中…
+                  </div>
                 )}
-              </AnimatePresence>
+              </div>
+
+              {/* ── Knowledge Expansion ── */}
+              <div style={{
+                borderLeft: '3px solid #5E7FA3',
+                paddingLeft: 14,
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: (expansion || expansionLoading) ? 10 : 8,
+                }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: 600, color: '#4A4640',
+                    letterSpacing: '0.02em',
+                    fontFamily: '"Playfair Display", Georgia, serif',
+                  }}>
+                    {t('aiExpand')}
+                  </span>
+                  {expansion && !expansionLoading && (
+                    <button
+                      type="button"
+                      onClick={() => setExpansion('')}
+                      style={{
+                        border: 'none', background: 'transparent', color: '#AAA49C',
+                        fontSize: 10.5, cursor: 'pointer', padding: '2px 6px',
+                      }}
+                    >
+                      收起
+                    </button>
+                  )}
+                </div>
+
+                <AnimatePresence initial={false}>
+                  {expansion && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      style={{
+                        overflow: 'hidden',
+                        color: '#4F5A63', fontSize: 13, lineHeight: 1.9,
+                        padding: '12px 14px', borderRadius: 10,
+                        background: 'rgba(94,127,163,0.05)',
+                        border: '1px solid rgba(94,127,163,0.08)',
+                      }}>
+                      {renderMarkdown(expansion)}
+                    </motion.div>
+                  )}
+                  {expansionError && !expansion && (
+                    <motion.p
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      style={{ margin: 0, color: '#B56A5B', fontSize: 11.5, lineHeight: 1.7 }}>
+                      {expansionError}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                {!expansion && !expansionLoading && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setExpansionLoading(true);
+                      setExpansionError('');
+                      try {
+                        if (note.type === 'video' && !(note.transcriptSegments?.length)) {
+                          setExpansionError('视频尚未转写，正在自动转写文稿…');
+                          await onTranscribe();
+                        }
+                        let result = await getNoteExpansion(note.id);
+                        if (result.needsTranscript) {
+                          setExpansionError('视频文稿尚未生成，请先在文稿页签点击「生成文稿」后重试');
+                          return;
+                        }
+                        setExpansion(result.expansion);
+                        if (result.note) onNoteChanged(result.note);
+                      } catch (error) {
+                        setExpansionError(error instanceof Error ? error.message : '生成失败');
+                      } finally { setExpansionLoading(false); }
+                    }}
+                    style={{
+                      height: 30, padding: '0 14px', borderRadius: 8,
+                      border: '1px solid rgba(94,127,163,0.25)', background: 'rgba(94,127,163,0.06)',
+                      color: '#4F6A8E', fontSize: 11, fontWeight: 600,
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    <Sparkles size={12} strokeWidth={1.8} />
+                    知识拓展
+                  </button>
+                )}
+
+                {expansionLoading && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    color: '#9A958D', fontSize: 11.5, padding: '4px 0',
+                  }}>
+                    <Loader2 size={13} className="animate-spin" />
+                    {t('aiExpandHint')}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1156,6 +1244,7 @@ function DeskCard({
   onToggleSelect?: () => void;
 }) {
   const color = catColor(note.category);
+  const [hovered, setHovered] = useState(false);
 
   return (
     <motion.div
@@ -1186,6 +1275,8 @@ function DeskCard({
       title={note.title}
       onDragStart={() => onDragStart?.(note.id)}
       onDragEnd={() => onDragEnd?.()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <motion.div
         animate={lightweight ? undefined : {
@@ -1272,6 +1363,32 @@ function DeskCard({
                 boxShadow: '0 0 0 2px rgba(130,153,135,0.3)',
               }} />
             )}
+            <AnimatePresence>
+              {!batchMode && hovered && (
+                <motion.button
+                  key="read-btn"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={(e) => { e.stopPropagation(); onClick(); }}
+                  style={{
+                    position: 'absolute', bottom: 8, left: '50%',
+                    transform: 'translateX(-50%)',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '5px 12px', borderRadius: 999,
+                    background: 'rgba(42,40,36,0.72)', color: '#fff',
+                    backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
+                    border: 'none', cursor: 'pointer',
+                    fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
+                  }}
+                >
+                  <BookOpen size={11} strokeWidth={1.8} />
+                  阅读
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
 
           <div style={{ padding: '7px 3px 0' }}>
@@ -1591,6 +1708,7 @@ export function DeskView() {
   const [scrollY, setScrollY] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Note | null>(null);
+  const [lastImportedNote, setLastImportedNote] = useState<Note | null>(null);
   const [dims, setDims] = useState({ w: 1200, h: 800 });
   const [serviceHealth, setServiceHealth] = useState<LocalServiceHealth>({ ok: false, source: 'sidecar' });
   const [importFeedback, setImportFeedback] = useState<ImportFeedback>(IDLE_IMPORT_FEEDBACK);
@@ -1960,6 +2078,7 @@ export function DeskView() {
         title: result.note.title,
         message: result.created ? t('saved') : t('contentUpdated'),
       });
+      setLastImportedNote(result.note);
       await loadLocalStatus();
       window.setTimeout(() => {
         setImportFeedback((current) => current.phase === 'complete' ? IDLE_IMPORT_FEEDBACK : current);
@@ -2676,6 +2795,7 @@ export function DeskView() {
                   background: 'rgba(253,252,250,0.92)', border: '1px solid rgba(94,105,95,0.12)',
                   backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
                   boxShadow: '0 8px 28px rgba(73,56,28,0.10)',
+                  pointerEvents: 'auto',
                 }}
               >
                 <motion.span
@@ -2702,6 +2822,25 @@ export function DeskView() {
                         ? '已接收'
                         : `${importFeedback.title}${importFeedback.message ? ` · ${importFeedback.message}` : ''}`}
                 </div>
+                {importFeedback.phase === 'complete' && lastImportedNote && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpanded(lastImportedNote);
+                      setImportFeedback(IDLE_IMPORT_FEEDBACK);
+                    }}
+                    style={{
+                      flexShrink: 0, height: 24, padding: '0 10px', borderRadius: 999,
+                      border: 'none', background: 'rgba(130,153,135,0.15)',
+                      color: '#4F6254', fontSize: 10.5, fontWeight: 600,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                    }}
+                  >
+                    <BookOpen size={11} strokeWidth={1.8} />
+                    查看
+                  </button>
+                )}
               </motion.div>
             )}
           </motion.div>

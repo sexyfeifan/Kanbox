@@ -20,16 +20,11 @@ function createAutoGroupId(category) {
 export function ensureDeskState(rawState, notes) {
   const safeNotes = Array.isArray(notes) ? notes : [];
   const noteIds = new Set(safeNotes.map((note) => note.id).filter(Boolean));
-  const knownNoteIds = new Set(
-    Array.isArray(rawState?.knownNoteIds)
-      ? rawState.knownNoteIds.filter((noteId) => typeof noteId === 'string' && noteId.trim())
-      : []
-  );
   const categories = Array.from(
     new Set(
       safeNotes
         .map((note) => String(note?.category || '').trim())
-        .filter(Boolean)
+        .filter((category) => category && category !== '待分类')
     )
   );
   const rawGroups = Array.isArray(rawState?.groups) ? rawState.groups : [];
@@ -56,7 +51,7 @@ export function ensureDeskState(rawState, notes) {
   });
 
   const customGroups = normalizedGroups.filter((group) => group.kind === 'custom');
-  const groups = [...autoGroups, ...customGroups, INBOX_GROUP];
+  const groups = [INBOX_GROUP, ...autoGroups, ...customGroups];
   const validGroupIds = new Set(groups.map((group) => group.id));
   const rawMap = rawState?.noteGroupMap && typeof rawState.noteGroupMap === 'object' ? rawState.noteGroupMap : {};
   const noteGroupMap = {};
@@ -70,8 +65,10 @@ export function ensureDeskState(rawState, notes) {
 
     const category = String(note?.category || '').trim();
     const autoGroup = groups.find((group) => group.kind === 'auto' && group.sourceCategory === category);
-    const isKnownNote = knownNoteIds.has(note.id);
-    noteGroupMap[note.id] = isKnownNote ? (autoGroup?.id || 'inbox') : (knownNoteIds.size > 0 ? 'inbox' : (autoGroup?.id || 'inbox'));
+    // 笔记已有确定分类（非空且非「待分类」）→ 进对应 auto 分组；
+    // 分类未确定或为「待分类」→ 进「待整理」inbox，等待后续补充分类后自动归位。
+    const isCategorized = Boolean(category) && category !== '待分类';
+    noteGroupMap[note.id] = isCategorized && autoGroup ? autoGroup.id : 'inbox';
   }
 
   for (const noteId of Object.keys(noteGroupMap)) {
@@ -98,6 +95,7 @@ export function createDeskGroup(state, name) {
   return {
     ...state,
     groups: [
+      INBOX_GROUP,
       ...groups,
       {
         id: createGroupId(),
@@ -105,7 +103,6 @@ export function createDeskGroup(state, name) {
         kind: 'custom',
         sourceCategory: '',
       },
-      INBOX_GROUP,
     ],
   };
 }
@@ -172,6 +169,6 @@ export function reorderGroup(state, groupId, newIndex) {
 
   return {
     ...state,
-    groups: inbox ? [...nonInbox, inbox] : nonInbox,
+    groups: inbox ? [inbox, ...nonInbox] : nonInbox,
   };
 }

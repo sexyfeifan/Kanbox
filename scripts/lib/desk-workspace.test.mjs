@@ -14,7 +14,7 @@ const notes = [
   { id: 'n3', title: '第三条', category: '阅读思考' },
 ];
 
-test('ensureDeskState restores auto category groups and keeps existing assignments', () => {
+test('ensureDeskState places inbox first and keeps existing assignments', () => {
   const state = ensureDeskState(
     {
       groups: [{ id: 'auto:阅读思考', name: '阅读', kind: 'auto', sourceCategory: '阅读思考' }],
@@ -26,34 +26,45 @@ test('ensureDeskState restores auto category groups and keeps existing assignmen
     notes
   );
 
-  assert.equal(state.groups[0].id, 'auto:阅读思考');
-  assert.equal(state.groups[1].id, 'auto:AI工具');
-  assert.equal(state.groups.at(-1).id, 'inbox');
+  assert.equal(state.groups[0].id, 'inbox');
+  assert.equal(state.groups[1].id, 'auto:阅读思考');
+  assert.equal(state.groups[2].id, 'auto:AI工具');
   assert.equal(state.noteGroupMap.n1, 'auto:阅读思考');
   assert.equal(state.noteGroupMap.n2, 'auto:AI工具');
   assert.equal(state.noteGroupMap.n3, 'auto:阅读思考');
   assert.equal(state.noteGroupMap.ghost, undefined);
 });
 
-test('ensureDeskState sends newly synced notes to inbox after workspace already exists', () => {
+test('ensureDeskState routes newly synced notes to their category group (not inbox)', () => {
   const base = ensureDeskState({}, notes);
   const nextNotes = [...notes, { id: 'n4', title: '第四条', category: 'AI工具' }];
   const next = ensureDeskState(base, nextNotes);
 
   assert.equal(next.noteGroupMap.n1, 'auto:阅读思考');
   assert.equal(next.noteGroupMap.n2, 'auto:AI工具');
-  assert.equal(next.noteGroupMap.n4, 'inbox');
+  assert.equal(next.noteGroupMap.n4, 'auto:AI工具');
 });
 
-test('ensureDeskState does not create an empty auto group for a new inbox note', () => {
+test('ensureDeskState creates an auto group for a newly categorized note', () => {
   const base = ensureDeskState({}, notes);
   const next = ensureDeskState(base, [
     ...notes,
     { id: 'n4', title: '第四条', category: '方法论' },
   ]);
 
-  assert.equal(next.noteGroupMap.n4, 'inbox');
-  assert.equal(next.groups.some((group) => group.id === 'auto:方法论'), false);
+  assert.equal(next.noteGroupMap.n4, 'auto:方法论');
+  assert.equal(next.groups.some((group) => group.id === 'auto:方法论'), true);
+});
+
+test('ensureDeskState sends uncategorized notes (待分类) to inbox without an auto group', () => {
+  const base = ensureDeskState({}, notes);
+  const next = ensureDeskState(base, [
+    ...notes,
+    { id: 'n5', title: '第五条', category: '待分类' },
+  ]);
+
+  assert.equal(next.noteGroupMap.n5, 'inbox');
+  assert.equal(next.groups.some((group) => group.id === 'auto:待分类'), false);
 });
 
 test('ensureDeskState preserves renamed auto group names', () => {
@@ -68,6 +79,7 @@ test('createDeskGroup appends a new editable group without disturbing existing n
   const base = ensureDeskState({}, notes);
   const next = createDeskGroup(base, '新分组');
 
+  assert.equal(next.groups[0].id, 'inbox');
   assert.equal(next.groups.some((group) => group.name === '新分组'), true);
   assert.equal(next.noteGroupMap.n1, 'auto:阅读思考');
 });
@@ -79,7 +91,7 @@ test('renameDeskGroup trims names and ignores inbox', () => {
   const inboxRename = renameDeskGroup(renamed, 'inbox', '别改我');
 
   assert.equal(renamed.groups.find((group) => group.id === customGroup.id).name, '阅读思考');
-  assert.equal(inboxRename.groups.at(-1).name, '待整理');
+  assert.equal(inboxRename.groups[0].name, '待整理');
 });
 
 test('moveNoteToGroup falls back to inbox when target group is missing', () => {
