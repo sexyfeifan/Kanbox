@@ -7,7 +7,7 @@
 - Node 本地 sidecar
 - 安装包内置 Node 运行时
 - Chrome Quick Import 扩展
-- 本地 `notes.json` 数据存储
+- 本地 `notes.json` 数据存储（支持 iCloud / 本机默认 / 自定义三种位置）
 
 ## 打包命令
 
@@ -27,6 +27,7 @@ npm run tauri:build
 - App 不保存小红书 Cookie
 - App 不调用收藏夹或评论接口，也不回退到 Chrome 登录态
 - App 不做定时任务和后台抓取
+- 默认不联网做 AI；仅当用户主动填 API key 开启在线摘要/拓展/转写增强时，才单条、按需发往用户指定的服务商
 
 ## 当前风险
 

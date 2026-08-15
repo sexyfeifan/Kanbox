@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.3.3-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.7.2-green" alt="Version" />
 
 <br /><br />
 
@@ -26,7 +26,59 @@
 
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
-数据全程存在你自己的电脑上，不上传云端，不需要 AI API key。
+数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.7.2 更新
+
+- **拖动分类持久化** — 卡片拖到任意分类（含「待分类」→ 新分类、已分类 → 其他分类）后刷新不再丢失，分类真正写入数据文件
+
+## 🆕 v0.7.1 更新
+
+- **白屏修复** — 新增 ErrorBoundary 与全局错误兜底，渲染异常不再白屏，显示「重新加载」按钮
+- **iCloud 存储 + 自定义位置** — 数据目录支持 iCloud Drive/kanbox（换机自动复原）、本机默认、自定义文件夹三种位置，设置面板一键切换
+- **AI 推荐服务商/模型** — AI 摘要/拓展与音转文字两处配置新增推荐下拉（DeepSeek / OpenAI / Kimi / 智谱 / 通义 / MiMo），模型带一句话介绍与擅长
+
+## 🆕 v0.7.0 更新
+
+- **知识拓展按类型取素材** — 图文笔记用「标题 + 正文」拓展，视频笔记用「视频文稿」拓展，避免只基于标题的浅拓展
+
+## 🆕 v0.6.2 更新
+
+- **长音频分片转写** — 修复 MiMo 语音输入 10MB 限制，超长音频自动切块逐片转写再合并
+- **转写字幕时间码分段** — 转写结果带时间码分段
+- **知识拓展去开场白** — 去除 AI 回复里的寒暄与自我说明，只保留知识正文
+
+## 🆕 v0.6.1 更新
+
+- **外链打开修复** — 修复「查看原帖」外链无法打开的问题
+- **数据安全加固** — 修复并发写入可能损坏/静默清空数据文件的致命链路，全代码审计
+
+## 🆕 v0.6.0 更新
+
+- **自动 AI 流水线** — 素材收录后 5 秒自动执行「转写 → 摘要 → 知识拓展」，也可手动补跑
+- **转写文本智能分段** — 长文稿自动分段，便于阅读
+
+## 🆕 v0.5.1 更新
+
+- **MiMo 语音转写** — 音转文字走 chat/completions 的 input_audio 形态，而非 Whisper 路由
+
+## 🆕 v0.5.0 更新
+
+- **音转文字增强** — 可选接入在线大模型（MiMo ASR / Whisper）获得更准确文稿
+- **AI 摘要/知识拓展持久化** — 摘要与拓展结果保存到笔记，不随刷新丢失
+- **Markdown 渲染** — AI 生成的摘要/拓展支持 Markdown 排版
+- **测试连接反馈** — 填完 API 配置可一键测试连通性
+
+## 🆕 v0.4.0 更新
+
+- **AI 摘要 + 知识拓展** — 接入 OpenAI 兼容的在线大模型（OpenAI / MiMo / DeepSeek / Moonshot 等），一键生成摘要与知识拓展
+- **音转文字设置** — 独立的转写配置入口
+
+## 🆕 v0.3.4 ~ v0.3.10 更新
+
+- **小红书收录稳定性** — 修复 token 捕获、匿名解析失败、空壳笔记补全、短链展开等问题，收录更稳定
+- **本地服务连接** — 导入前即时健康检查，端口占用/启动错误给出明确提示
+- **语言切换与纯 URL 导入** — 修复语言切换失效、恢复纯 URL 导入的完整解析链
 
 ## 🆕 v0.3.3 更新
 
@@ -133,9 +185,13 @@
 | 📺 | **多平台支持** | 支持小红书、B站、微博、抖音、知乎、快手、头条内容收藏 |
 | 🔍 | **图片文字可搜** | 调用 macOS 原生 Vision 框架做本地 OCR，中英文都认，图里的干货变成可搜索文本 |
 | 🔤 | **拼音搜索** | 输入拼音首字母搜索中文笔记，支持模糊匹配 |
-| 🤖 | **AI 摘要** | 本地文本提取摘要，无需 API key，一键生成笔记要点 |
-| 🎬 | **视频文稿** | 视频保存到本机，使用 macOS 离线 Speech 分段转写完整语音 |
+| 🤖 | **AI 摘要** | 本地提取式摘要默认可用；也可接入在线大模型（DeepSeek/OpenAI/Kimi/智谱/通义/MiMo）生成更精准摘要 |
+| 🧠 | **知识拓展** | 接入在线大模型后，围绕收藏内容拓展背景知识、概念解释、延伸话题与实用建议 |
+| 🔄 | **自动 AI 流水线** | 素材收录后自动执行「转写 → 摘要 → 知识拓展」，也可手动补跑 |
+| 🎬 | **视频文稿** | 视频保存到本机，使用 macOS 离线 Speech 分段转写；可用在线大模型增强，长音频自动分片 |
 | 🗂️ | **自动分类** | 按标题、正文、OCR 文本和标签打分，自动分到 9 个类目 |
+| 🖱️ | **拖动分类** | 卡片拖到任意分类（含「待分类」）即时持久化，刷新不丢失 |
+| ☁️ | **iCloud 同步** | 数据目录可切到 iCloud Drive/kanbox，换机登录同一 Apple ID 自动复原；也支持本机默认或自定义位置 |
 | 🖼️ | **配图本地化** | 图片下载到本机，原帖删除、限流、防盗链都不影响你已存的内容 |
 | 🤖 | **Agent 可读** | 内置 MCP server，Claude Code / Codex 可以直接搜你的本地笔记库当资料 |
 | 📝 | **笔记编辑** | 修改标题、标签，修正 OCR 错误 |
@@ -196,7 +252,7 @@ flowchart LR
 - 只解析你手动拖进来的**单条**公开笔记页面
 - 匿名 HTTP 请求，不带 Cookie、不带 token
 - 图片只从 `.xhscdn.com` / `.xhsimg.com` 下载，其他域名直接拒绝
-- 所有数据写在本机目录，服务只监听 `127.0.0.1`
+- 所有数据写在本机目录或你自己的 iCloud，服务只监听 `127.0.0.1`
 - OCR 用 macOS 系统框架跑，图片不出本机
 
 **❌ 不会做的**
@@ -204,8 +260,9 @@ flowchart LR
 - 不读你的小红书 Cookie 或登录态
 - 不访问收藏夹、关注列表、评论接口
 - 不做定时任务、后台抓取、批量同步
-- 不调用任何远程 AI 服务，**不需要 API key**
-- 不上传任何数据到任何服务器
+- 默认不联网做 AI：本地 OCR、本地视频转写、本地摘要全部离线
+- 只有当你**主动填入 API key 并开启**在线 AI 摘要/知识拓展/音转文字增强时，笔记内容才会单条、按需发往你指定的服务商（DeepSeek / OpenAI / Kimi 等）
+- 没有任何 Kanbox 自有后端：数据只在你本机，或你自己的 iCloud
 
 **Chrome 扩展的权限清单**（`browser-extension/manifest.json`，可以自己核对）：
 
@@ -309,15 +366,30 @@ codex mcp add kanbox-notes \
 
 ## 💾 数据存在哪
 
+数据目录支持三种位置，解析优先级：**自定义指针 > iCloud kanbox > 本机默认**。
+
 ```
+# 本机默认
 ~/Library/Application Support/com.kanbox.app/
-├── notes.json          # 所有笔记的正文、文稿、OCR、元数据
-├── media/<noteId>/     # 每条笔记的配图与视频
-└── settings.json
+
+# iCloud（换机自动复原）
+~/Library/Mobile Documents/com~apple~CloudDocs/kanbox/
 ```
 
-- **备份**：直接拷走这个文件夹，或在 App 中点击「导出」按钮下载 JSON 备份
-- **彻底删除**：删掉这个文件夹，App 就回到空白状态
+目录结构：
+
+```
+<数据目录>/
+├── notes.json          # 所有笔记的正文、文稿、OCR、元数据
+├── media/<noteId>/     # 每条笔记的配图与视频
+├── backups/            # 每日自动备份（保留最近 7 份）
+└── settings.json       # 含 AI 配置等设置
+```
+
+- **换机复原**：数据切到 iCloud 后，新电脑登录同一 Apple ID，等 iCloud 同步完成，打开软件即自动读取，无需手动操作
+- **切换位置**：设置面板「存储位置」可一键切到 iCloud / 本机默认 / 自定义文件夹，切换后自动迁移数据（源目录保留作兜底）
+- **备份**：直接拷走整个数据目录，或在 App 中点击「导出」下载 JSON / Markdown / HTML 备份
+- **彻底删除**：删掉数据目录，App 就回到空白状态
 - **仓库里不含任何笔记数据**，`.gitignore` 也挡住了，不用担心 commit 的时候把收藏推上去
 
 ## 🛠️ 本地开发
@@ -350,14 +422,33 @@ npm run build
 | `GET` | `/health` | 健康检查，返回数据目录和 OCR 可用性 |
 | `GET` | `/notes` | 全部笔记 |
 | `POST` | `/notes/import` | 导入一条笔记 |
-| `PATCH` | `/notes/:id` | 更新笔记标题和标签 |
+| `PATCH` | `/notes/:id` | 更新笔记标题、标签、分类 |
 | `DELETE` | `/notes/:id` | 删除笔记，连带删除本地媒体 |
 | `GET` | `/notes/export` | 导出全部笔记为 JSON 备份文件 |
+| `GET` | `/notes/export/markdown` | 导出全部笔记为 Markdown |
+| `GET` | `/notes/export/html` | 导出全部笔记为 HTML |
 | `GET` | `/media/:noteId/:file` | 读取本地图片或视频 |
+| `GET` | `/storage` | 当前存储位置信息（iCloud / 本机 / 自定义） |
+| `POST` | `/storage/location` | 切换存储位置（含数据迁移） |
+| `GET` | `/ai/settings` | 读取 AI 配置 |
+| `POST` | `/ai/settings` | 保存 AI 配置 |
+| `GET` | `/ai/presets` | 推荐服务商/模型预设 |
+| `POST` | `/ai/test` | 测试 AI 摘要/拓展连通性 |
+| `POST` | `/ai/test-transcribe` | 测试音转文字连通性 |
+| `POST` | `/ai/batch-process` | 手动补跑 AI 流水线 |
+| `GET` | `/ai/pipeline` | AI 流水线状态 |
 | `GET` | `/data/info` | 数据目录统计信息 |
+| `GET` | `/data/integrity` | 数据完整性检查 |
+| `POST` | `/data/integrity/repair` | 数据完整性修复 |
+| `POST` | `/data/backup` | 手动创建备份 |
+| `POST` | `/data/restore` | 从备份恢复 |
+| `GET` | `/tags` | 标签列表 |
+| `POST` | `/tags/rename` | 批量重命名标签 |
+| `POST` | `/tags/delete` | 批量删除标签 |
 | `GET` | `/setup` | 扩展与 Agent 的安装状态 |
 | `POST` | `/setup/browser-extension/open` | 打开扩展配置页 |
 | `POST` | `/setup/agent/connect` | 注册 MCP server |
+| `POST` | `/setup/restart` | 重启应用（切换存储位置后） |
 
 端口可以用 `LOCAL_API_PORT` 改，数据目录可以用 `LOCAL_APP_DATA_DIR` 改。
 
@@ -366,12 +457,15 @@ npm run build
 - **前端** Next.js 16 · React 19 · Tailwind CSS 4 · Framer Motion
 - **桌面** Tauri 2
 - **本地服务** Node.js sidecar（零依赖，只用标准库）
+- **AI 服务** OpenAI 兼容的 `/chat/completions` 接口，支持 DeepSeek / OpenAI / Moonshot / 智谱 / 通义 / MiMo
 - **OCR** macOS Vision 框架，经 JXA 调用，识别 `zh-Hans` / `zh-Hant` / `en-US`
 - **视频文稿** macOS Speech 强制设备端识别；不支持离线识别时不会回退到云端
 
 ## ⚠️ 已知限制
 
 - **仅 macOS**：OCR 和视频文稿依赖 Vision / Speech 框架
+- **iCloud 同步仅限 macOS 设备间**：依赖 Apple 的 iCloud Drive 且需登录同一 Apple ID；本机 OCR/转写仍需 macOS
+- **在线 AI 需自备 key**：AI 摘要/知识拓展/音转文字增强走在线大模型时，需要你自备对应服务商的 API key（本地摘要与离线转写不在此列）
 - **离线转写兼容性**：只有系统报告支持中文设备端识别时才会生成视频文稿
 - **小红书改版会失效**：扩展的 DOM 选择器和页面状态解析规则依赖当前页面结构，改版后需要跟着更新
 - **匿名解析可能失败**：页面拒绝匿名访问时导入会报错。这是设计如此 —— 不会为了成功率去用你的登录态

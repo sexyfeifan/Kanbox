@@ -2,7 +2,7 @@
 
 ## 产品边界
 
-当前维护免费本地版，保留首页卡片分组，支持笔记编辑、数据导出、粘贴链接导入和分类筛选。
+当前维护免费本地版，保留首页卡片分组，支持笔记编辑、数据导出、粘贴链接导入、分类筛选、拖动分类、iCloud 存储，以及可选的在线 AI 能力（AI 摘要 / 知识拓展 / 音转文字增强）。
 
 明确不在当前实现中的内容：
 
@@ -10,7 +10,7 @@
 - 收藏夹批量同步
 - `safe-xhs` 或其他自动抓取器
 - 小红书登录态和账号切换
-- AI 聊天、远程模型配置和聚合知识库
+- AI 聊天对话界面和聚合知识库（AI 能力仅限摘要/拓展/转写，无对话）
 
 ## 当前调用链
 
@@ -35,6 +35,10 @@
 - `scripts/lib/media-import.mjs`：配图本地化与本地 OCR
 - `scripts/lib/category-inference.mjs`：规则分类（唯一版本，前端和后端共用）
 - `scripts/lib/note-search.mjs`：笔记全文搜索
+- `scripts/lib/ai-service.mjs`：AI 摘要 / 知识拓展 / 音转文字（OpenAI 兼容接口）
+- `scripts/lib/storage-location.mjs`：数据目录解析（iCloud / 本机 / 自定义）
+- `scripts/lib/ai-provider-presets.mjs`：推荐服务商/模型预设
+- `app/components/ErrorBoundary.tsx`：渲染异常兜底
 - `browser-extension/`：卡片拖拽与当前详情页的本地读取
 
 ## 验证命令
@@ -50,11 +54,20 @@ npm run build
 - `GET /health`
 - `GET /notes`
 - `POST /notes/import`
-- `PATCH /notes/:id` — 更新标题和标签
+- `PATCH /notes/:id` — 更新标题、标签、分类
 - `DELETE /notes/:id`
 - `GET /notes/export` — 导出全部笔记为 JSON
 - `GET /media/:noteId/:file`
+- `GET /storage` — 存储位置信息
+- `POST /storage/location` — 切换存储位置
+- `GET /ai/settings` / `POST /ai/settings` — AI 配置
+- `GET /ai/presets` — 推荐服务商/模型
+- `POST /ai/test` / `POST /ai/test-transcribe` — 连通性测试
+- `POST /ai/batch-process` — 手动补跑 AI 流水线
 - `GET /data/info` — 数据目录统计
+- `GET /data/integrity` / `POST /data/integrity/repair` — 完整性检查与修复
+- `POST /data/backup` / `POST /data/restore` — 备份与恢复
 - `GET /setup`
 - `POST /setup/browser-extension/open`
 - `POST /setup/agent/connect`
+- `POST /setup/restart` — 重启应用
