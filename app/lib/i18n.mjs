@@ -92,6 +92,10 @@
     aiBatchNone: '没有待处理的任务',
     aiBatchFail: '补跑失败',
     aiProcessingProgress: 'AI 处理中',
+    reCategorizedTitle: '重新归档完成',
+    reCategorizeNone: '没有可归档的笔记',
+    reCategorizeNoneHint: '待整理里的笔记暂时无法确定分类',
+    reCategorizeFail: '重新归档失败',
   },
   'en': {
     appName: 'Kanbox',
@@ -186,6 +190,10 @@
     aiBatchNone: 'No pending tasks',
     aiBatchFail: 'Batch failed',
     aiProcessingProgress: 'AI processing',
+    reCategorizedTitle: 'Re-archive complete',
+    reCategorizeNone: 'No notes to re-archive',
+    reCategorizeNoneHint: 'Notes in inbox cannot be classified yet',
+    reCategorizeFail: 'Re-archive failed',
   },
   'ja': {
     appName: 'Kanbox',
@@ -280,6 +288,10 @@
     aiBatchNone: '処理待ちのタスクなし',
     aiBatchFail: '補完に失敗',
     aiProcessingProgress: 'AI 処理中',
+    reCategorizedTitle: '再分類完了',
+    reCategorizeNone: '分類可能なメモがありません',
+    reCategorizeNoneHint: '整理待ちのメモはまだ分類を確定できません',
+    reCategorizeFail: '再分類に失敗しました',
   },
   'zh-TW': {
     appName: 'Kanbox',
@@ -374,6 +386,10 @@
     aiBatchNone: '沒有待處理的任務',
     aiBatchFail: '補跑失敗',
     aiProcessingProgress: 'AI 處理中',
+    reCategorizedTitle: '重新歸檔完成',
+    reCategorizeNone: '沒有可歸檔的筆記',
+    reCategorizeNoneHint: '待整理裡的筆記暫時無法確定分類',
+    reCategorizeFail: '重新歸檔失敗',
   },
 };
 

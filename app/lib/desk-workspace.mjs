@@ -57,17 +57,21 @@ export function ensureDeskState(rawState, notes) {
   const noteGroupMap = {};
 
   for (const note of safeNotes) {
-    const nextGroupId = typeof rawMap[note.id] === 'string' ? rawMap[note.id] : '';
-    if (validGroupIds.has(nextGroupId)) {
-      noteGroupMap[note.id] = nextGroupId;
-      continue;
-    }
-
     const category = String(note?.category || '').trim();
     const autoGroup = groups.find((group) => group.kind === 'auto' && group.sourceCategory === category);
     // 笔记已有确定分类（非空且非「待分类」）→ 进对应 auto 分组；
     // 分类未确定或为「待分类」→ 进「待整理」inbox，等待后续补充分类后自动归位。
     const isCategorized = Boolean(category) && category !== '待分类';
+
+    // 自定义分组（group-xxx）的映射只存 localStorage（note.category 不反映它），必须尊重；
+    // 而 inbox / auto: 的映射以 note.category 为持久真源——历史遗留的陈旧 inbox/auto 记录
+    // 让位于 category，这样「重新归档」更新 category 后笔记能自动归位，不再积压在待整理。
+    const mappedGroupId = typeof rawMap[note.id] === 'string' ? rawMap[note.id] : '';
+    if (mappedGroupId.startsWith('group-') && validGroupIds.has(mappedGroupId)) {
+      noteGroupMap[note.id] = mappedGroupId;
+      continue;
+    }
+
     noteGroupMap[note.id] = isCategorized && autoGroup ? autoGroup.id : 'inbox';
   }
 

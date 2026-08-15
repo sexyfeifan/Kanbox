@@ -22,6 +22,7 @@ import {
   Link,
   Download,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -62,6 +63,7 @@ import {
   setStorageLocation,
   restartApp,
   getAiPresets,
+  reCategorizeNotes as reCategorizeAllNotes,
 } from '../lib/xhs-client';
 import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset } from '../lib/xhs-client';
 import { renderMarkdown } from '../lib/markdown';
@@ -1777,6 +1779,7 @@ export function DeskView() {
     running: false, status: 'idle', queued: 0, doneCount: 0, totalCount: 0, currentNoteId: null, currentKind: null,
   });
   const [batchProcessing, setBatchProcessing] = useState(false);
+  const [reCategorizing, setReCategorizing] = useState(false);
 
   // Track dismissImportFeedback timers for cleanup on unmount
   const dismissTimersRef = useRef<number[]>([]);
@@ -2534,6 +2537,27 @@ export function DeskView() {
       dismissImportFeedback('error', 3600);
     } finally {
       setBatchProcessing(false);
+    }
+  };
+
+  const handleReCategorize = async () => {
+    if (reCategorizing) return;
+    setReCategorizing(true);
+    try {
+      const result = await reCategorizeAllNotes();
+      setNotes(result.notes);
+      if (result.reclassified > 0) {
+        setImportFeedback({ phase: 'complete', title: t('reCategorizedTitle'), message: `${result.reclassified} 条${result.remaining > 0 ? `，还有 ${result.remaining} 条待整理` : ''}` });
+        dismissImportFeedback('complete', 2600);
+      } else {
+        setImportFeedback({ phase: 'complete', title: t('reCategorizeNone'), message: t('reCategorizeNoneHint') });
+        dismissImportFeedback('complete', 2400);
+      }
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: t('reCategorizeFail'), message: error instanceof Error ? error.message : '' });
+      dismissImportFeedback('error', 3600);
+    } finally {
+      setReCategorizing(false);
     }
   };
 
@@ -3432,6 +3456,39 @@ export function DeskView() {
                             {kind === 'inbox' ? '新进笔记' : `${noteCount} 条笔记`}
                           </div>
                         </div>
+                        {kind === 'inbox' && noteCount > 0 && (
+                          <motion.button
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            onClick={(e) => { e.stopPropagation(); void handleReCategorize(); }}
+                            disabled={reCategorizing}
+                            style={{
+                              height: 26,
+                              borderRadius: 13,
+                              border: '1px solid rgba(73,56,28,0.07)',
+                              background: 'rgba(253,252,250,0.78)',
+                              color: reCategorizing ? '#A8A29E' : '#666159',
+                              fontSize: 10.5,
+                              fontWeight: 550,
+                              cursor: reCategorizing ? 'default' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '0 10px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <motion.span
+                              animate={reCategorizing ? { rotate: 360 } : { rotate: 0 }}
+                              transition={reCategorizing ? { repeat: Infinity, duration: 0.8, ease: 'linear' } : {}}
+                              style={{ display: 'flex', alignItems: 'center' }}
+                            >
+                              <RefreshCw size={11} strokeWidth={2.2} />
+                            </motion.span>
+                            {reCategorizing ? '归档中…' : '重新归档'}
+                          </motion.button>
+                        )}
                         <motion.div
                           animate={{
                             rotate: isExpanded ? 180 : 0,

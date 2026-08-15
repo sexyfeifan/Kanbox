@@ -132,3 +132,31 @@ export function inferCategoryFromNote(note) {
 
   return bestScore >= 2 ? bestCategory : '待分类';
 }
+
+
+// 对「未分类 / 待分类」的笔记重新跑分类推断（用于「重新归档」）。
+// 只重算 category 缺失/空/「待分类」的笔记，绝不动已有确定分类的笔记（可能是用户手动改的）。
+// 返回 { notes, reclassified, reclassifiedIds, remaining }。
+export function reCategorizeNotes(notes) {
+  const list = Array.isArray(notes) ? notes : [];
+  let reclassified = 0;
+  let remaining = 0;
+  const reclassifiedIds = [];
+
+  const updated = list.map((note) => {
+    const current = String(note?.category || '').trim();
+    if (current && current !== '待分类') {
+      return note;
+    }
+    const inferred = inferCategoryFromNote(note);
+    if (inferred && inferred !== '待分类') {
+      reclassified += 1;
+      reclassifiedIds.push(note.id);
+      return { ...note, category: inferred };
+    }
+    remaining += 1;
+    return note;
+  });
+
+  return { notes: updated, reclassified, reclassifiedIds, remaining };
+}

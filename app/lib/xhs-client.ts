@@ -122,7 +122,12 @@ function toDate(value: unknown): Date {
 }
 
 function normalizeNote(note: Partial<Note>): Note {
-  const normalizedCategory = inferCategoryFromNote(note);
+  // 后端已确定 category（导入时推断、手动拖拽显式写入、重新归档时重推断）——
+  // 前端应尊重后端值，而不是每次重新推断覆盖用户的手动分类（v0.7.2 遗漏修复）。
+  const normalizedCategory =
+    typeof note.category === 'string' && note.category.trim()
+      ? note.category.trim()
+      : inferCategoryFromNote(note);
 
   return {
     id: typeof note.id === 'string' && /^[0-9a-f]{24}$/i.test(note.id) ? note.id : '',
@@ -288,6 +293,20 @@ export async function updateNote(noteId: string, updates: { title?: string; tags
   }
 
   return { notes, note };
+}
+
+export async function reCategorizeNotes(): Promise<{ notes: Note[]; reclassified: number; remaining: number }> {
+  const payload = await fetchLocalApi<{
+    notes?: RawNote[];
+    reclassified?: number;
+    remaining?: number;
+  }>('/notes/re-categorize', { method: 'POST' }, 30_000);
+  const response = normalizeRemoteNotes(payload);
+  return {
+    notes: response.notes,
+    reclassified: typeof payload.reclassified === 'number' ? payload.reclassified : 0,
+    remaining: typeof payload.remaining === 'number' ? payload.remaining : 0,
+  };
 }
 
 export async function deleteStoredNote(noteId: string): Promise<DeleteNoteResult> {

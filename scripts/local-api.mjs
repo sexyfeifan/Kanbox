@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { inferCategoryFromNote } from './lib/category-inference.mjs';
+import { inferCategoryFromNote, reCategorizeNotes } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
 import { summarizeNote } from './lib/text-summary.mjs';
 import {
@@ -1331,6 +1331,27 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/notes/import') {
       sendJson(request, response, 200, await queueNoteImport(await readRequestBody(request)));
+      return;
+    }
+
+    // 「重新归档」：对待整理（category 缺失/空/「待分类」）的笔记重新跑分类推断，
+    // 把能确定分类的笔记写回 category，让前端 desk-workspace 自动归位到对应分类组。
+    if (request.method === 'POST' && url.pathname === '/notes/re-categorize') {
+      sendJson(request, response, 200, await queueMutation(async () => {
+        const notes = await readNotes();
+        const { notes: updated, reclassified, remaining, reclassifiedIds } = reCategorizeNotes(notes);
+        if (reclassified > 0) {
+          await writeNotes(updated);
+        }
+        broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+        return {
+          notes: updated,
+          reclassified,
+          remaining,
+          reclassifiedIds,
+          lastImportedAt: getLastImportedAt(updated),
+        };
+      }));
       return;
     }
 

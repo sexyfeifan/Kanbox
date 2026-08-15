@@ -103,3 +103,34 @@ test('moveNoteToGroup falls back to inbox when target group is missing', () => {
   assert.equal(moved.noteGroupMap.n2, groupId);
   assert.equal(fallback.noteGroupMap.n2, 'inbox');
 });
+
+test('ensureDeskState: stale inbox mapping yields to a determined category', () => {
+  // 历史遗留：localStorage 里记着 inbox，但 note.category 其实已被正确推断 → 应归位到 auto 组，
+  // 而不是继续积压在待整理（这是「重新归档」能生效的前提）。
+  const state = ensureDeskState(
+    {
+      groups: [{ id: 'inbox', name: '待整理', kind: 'inbox' }],
+      noteGroupMap: { n1: 'inbox' },
+    },
+    [{ id: 'n1', title: '一条编程笔记', category: '编程开发' }]
+  );
+
+  assert.equal(state.noteGroupMap.n1, 'auto:编程开发');
+  assert.equal(state.groups.some((group) => group.id === 'auto:编程开发'), true);
+});
+
+test('ensureDeskState: custom group-xxx mapping is still respected over category', () => {
+  // 用户手动拖到自定义分组 group-xxx 只存 localStorage，category 不反映它 → 必须尊重映射。
+  const state = ensureDeskState(
+    {
+      groups: [
+        { id: 'inbox', name: '待整理', kind: 'inbox' },
+        { id: 'group-custom1', name: '我的收藏夹', kind: 'custom', sourceCategory: '' },
+      ],
+      noteGroupMap: { n1: 'group-custom1' },
+    },
+    [{ id: 'n1', title: '一条笔记', category: '编程开发' }]
+  );
+
+  assert.equal(state.noteGroupMap.n1, 'group-custom1');
+});
