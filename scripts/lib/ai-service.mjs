@@ -31,6 +31,11 @@ const DEFAULT_AI_SETTINGS = {
 const MAX_PROMPT_CHARS = 8000;
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// MiMo chat 形态 input_audio.data 单次 base64 硬限制 10MB，超长音频（如 8 分钟视频）一次上传会被 400 拒绝。
+// 超过阈值时按约 2.5 分钟切块逐片转写再合并，每片 base64 ≈ 6.4MB，留有安全余量。
+const MAX_INPUT_AUDIO_BASE64 = 9 * 1024 * 1024;
+const TRANSCRIBE_CHUNK_SECONDS = 150;
+
 export function settingsFilePath(dataDirectory) {
   return path.join(dataDirectory, 'settings.json');
 }
@@ -155,6 +160,147 @@ export function normalizeTranscriptResult(payload) {
   return { text, segments };
 }
 
+/** 解析 WAV 头，返回采样率/声道/位深/data 数据段偏移与字节数，并推算出时长。 */
+export function parseWavHeader(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 44) {
+    throw new Error('不是有效的 WAV 数据');
+  }
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('不是有效的 WAV 文件');
+  }
+  const channels = buffer.readUInt16LE(22);
+  const sampleRate = buffer.readUInt32LE(24);
+  const bitsPerSample = buffer.readUInt16LE(34);
+  const bytesPerSec = sampleRate * channels * (bitsPerSample / 8);
+  // 从偏移 12 起遍历子块，定位 'data' 数据段（afconvert 产出标准 fmt+data 布局）。
+  let offset = 12;
+  let dataOffset = -1;
+  let dataSize = 0;
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    if (chunkId === 'data') {
+      dataOffset = offset + 8;
+      dataSize = Math.min(chunkSize, buffer.length - dataOffset);
+      break;
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  if (dataOffset < 0 || bytesPerSec <= 0) {
+    throw new Error('WAV 数据段解析失败');
+  }
+  return {
+    sampleRate,
+    channels,
+    bitsPerSample,
+    bytesPerSec,
+    dataOffset,
+    dataSize,
+    duration: dataSize / bytesPerSec,
+  };
+}
+
+/** 依据音频参数构造标准 44 字节 WAV 头（PCM）。 */
+function buildWavHeader({ sampleRate, channels, bitsPerSample }, dataSize) {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * (bitsPerSample / 8), 28);
+  header.writeUInt16LE(channels * (bitsPerSample / 8), 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return header;
+}
+
+/**
+ * 把整段 WAV 按目标时长切成若干片（每片都是合法 WAV），返回 [{ buffer, startSec, durationSec }]。
+ * 单次 base64 未超过上限时整体作为一片（不切）。切块边界可能落在句中，属可接受的近似。
+ */
+export function splitWavIntoChunks(buffer, chunkSeconds = TRANSCRIBE_CHUNK_SECONDS, maxBase64 = MAX_INPUT_AUDIO_BASE64) {
+  const info = parseWavHeader(buffer);
+  if (buffer.toString('base64').length <= maxBase64) {
+    return [{ buffer, startSec: 0, durationSec: info.duration }];
+  }
+  const chunkBytes = Math.max(1, Math.floor(chunkSeconds * info.bytesPerSec));
+  const chunks = [];
+  let offset = 0;
+  while (offset < info.dataSize) {
+    const end = Math.min(info.dataSize, offset + chunkBytes);
+    const pcm = buffer.subarray(info.dataOffset + offset, info.dataOffset + end);
+    const chunkBuffer = Buffer.concat([buildWavHeader(info, pcm.length), pcm]);
+    chunks.push({
+      buffer: chunkBuffer,
+      startSec: offset / info.bytesPerSec,
+      durationSec: (end - offset) / info.bytesPerSec,
+    });
+    offset = end;
+  }
+  return chunks;
+}
+
+/** 按句末标点切句（保留标点在句尾）。 */
+function splitIntoSentences(text) {
+  return String(text || '')
+    .split(/(?<=[。！？；…!?;])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 把「分片转写」的结果规整为带时间码的句子级分段（用于字幕式逐行展示）。
+ * 每片文本按句切分，片内按字数比例内插各句的起止时间。
+ */
+export function buildTimedSegments(chunks) {
+  const segments = [];
+  for (const chunk of chunks) {
+    const text = String(chunk?.text || '').trim();
+    const startSec = Math.max(0, Number(chunk?.start) || 0);
+    const durationSec = Math.max(0, Number(chunk?.duration) || 0);
+    if (!text) continue;
+    const sentences = splitIntoSentences(text);
+    if (sentences.length <= 1) {
+      segments.push({ start: round2(startSec), duration: round2(durationSec), text });
+      continue;
+    }
+    const totalLen = sentences.reduce((sum, s) => sum + s.length, 0) || 1;
+    let cursor = startSec;
+    for (const sentence of sentences) {
+      const dur = durationSec * (sentence.length / totalLen);
+      segments.push({ start: round2(cursor), duration: round2(dur), text: sentence });
+      cursor += dur;
+    }
+  }
+  return segments;
+}
+
+function round2(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+/** 去掉 AI 回复开头常见的「好的，围绕…整理了一份知识拓展…」这类开场白/自我说明，只保留知识正文。 */
+export function stripAiPreamble(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  const lines = text.split(/\r?\n/);
+  // 仅在「多行且首行是明显开场白」时摘掉首行，避免误删正文。
+  if (lines.length > 1) {
+    const first = lines[0].trim();
+    const isOpening =
+      /^(好的|好|没问题|当然|可以的|可以|明白|收到|了解|嗯)[，,。.!！：: ]/.test(first)
+      || /^(以下|下面|这里|这是|为您|为你|帮你)[^。\n]{0,60}[：:]\s*$/.test(first)
+      || /^(围绕|关于|针对)[^。\n]{0,60}(主题|内容|话题)[^。\n]{0,60}(拓展|总结|梳理|整理|介绍|分享|帮你|为你)/.test(first);
+    if (isOpening) lines.shift();
+  }
+  return lines.join('\n').trim();
+}
+
 /**
  * 用在线大模型转写音频，兼容两种接口形态：
  * 1) Whisper/OpenAI 兼容的 `POST /audio/transcriptions`（multipart，OpenAI、Groq 等）；
@@ -208,7 +354,9 @@ export async function transcribeWithAi(aiSettings, audioPath, options = {}) {
 /**
  * chat/completions + input_audio 形态转写（MiMo 等）。
  * 音频须为 wav/mp3，先经 afconvert 把 m4a 转成 16kHz 单声道 WAV 再 base64 上传。
- * 返回 { text, segments }（与 Whisper 结果形状一致）。
+ * 长音频（如 8 分钟视频）单次 base64 会超过 MiMo 的 10MB 硬限制而被 400 拒绝，
+ * 因此按约 2.5 分钟切块逐片转写，再合并为带时间码的句子级分段。
+ * 返回 { text, segments }（与 Whisper 结果形状一致，segments 带 start/duration）。
  */
 async function transcribeViaInputAudio(resolved, audioPath, timeoutMs = 300_000) {
   if (typeof audioPath !== 'string') {
@@ -221,6 +369,25 @@ async function transcribeViaInputAudio(resolved, audioPath, timeoutMs = 300_000)
   } finally {
     await rm(wavPath, { force: true }).catch(() => {});
   }
+
+  const chunks = splitWavIntoChunks(wavBuffer);
+  const timedChunks = [];
+  const texts = [];
+  for (const chunk of chunks) {
+    const chunkText = await transcribeWavChunk(resolved, chunk.buffer, timeoutMs);
+    if (chunkText) {
+      texts.push(chunkText);
+      timedChunks.push({ text: chunkText, start: chunk.startSec, duration: chunk.durationSec });
+    }
+  }
+  if (texts.length === 0) {
+    throw new Error('音转文字接口返回结果为空');
+  }
+  return { text: texts.join(''), segments: buildTimedSegments(timedChunks) };
+}
+
+/** 单次 chat/completions + input_audio 请求，返回转写文本（空串表示无内容）。 */
+async function transcribeWavChunk(resolved, wavBuffer, timeoutMs = 300_000) {
   const base64 = wavBuffer.toString('base64');
   const chatUrl = normalizeEndpoint(resolved.endpoint);
 
@@ -243,11 +410,8 @@ async function transcribeViaInputAudio(resolved, audioPath, timeoutMs = 300_000)
       throw new Error(`音转文字接口返回 ${response.status}：${detail.slice(0, 200)}`);
     }
     const payload = await response.json();
-    const text = payload?.choices?.[0]?.message?.content;
-    if (typeof text !== 'string' || !text.trim()) {
-      throw new Error('音转文字接口返回结果为空');
-    }
-    return normalizeTranscriptResult({ text });
+    const content = payload?.choices?.[0]?.message?.content;
+    return typeof content === 'string' ? content.trim() : '';
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('音转文字接口请求超时');
     throw error;
@@ -400,10 +564,10 @@ export async function summarizeWithAi(aiSettings, note) {
     },
     {
       role: 'user',
-      content: '请用简洁的中文总结下面这条收藏内容，突出核心信息，控制在 180 字以内，分要点或短段落呈现，不要编造原文没有的信息。\n\n' + text,
+      content: '请用简洁的中文总结下面这条收藏内容，突出核心信息，控制在 180 字以内，分要点或短段落呈现，不要编造原文没有的信息。直接输出总结正文，不要任何开场白、寒暄或自我说明。\n\n' + text,
     },
   ]);
-  return content;
+  return stripAiPreamble(content);
 }
 
 export async function expandWithAi(aiSettings, note) {
@@ -416,10 +580,10 @@ export async function expandWithAi(aiSettings, note) {
     },
     {
       role: 'user',
-      content: '请围绕下面这条收藏内容，拓展相关的背景知识、概念解释、延伸话题或实用建议，帮助用户更深入地理解主题。用中文分点输出，条理清晰，不要复述原文。\n\n' + text,
+      content: '请围绕下面这条收藏内容，拓展相关的背景知识、概念解释、延伸话题或实用建议，帮助用户更深入地理解主题。要求：直接输出知识正文，不要任何开场白、寒暄、标题或自我说明（不要写「好的」「以下是」「帮你整理」之类的话），不要复述原文或标题，用中文分点输出，条理清晰。\n\n' + text,
     },
   ], { temperature: 0.6 });
-  return content;
+  return stripAiPreamble(content);
 }
 
 export async function testAi(aiSettings) {

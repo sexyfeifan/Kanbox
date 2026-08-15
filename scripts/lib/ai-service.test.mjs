@@ -6,14 +6,18 @@ import path from 'node:path';
 
 import {
   buildNoteText,
+  buildTimedSegments,
   computePendingAiKinds,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
   normalizeTranscriptResult,
+  parseWavHeader,
   publicAiSettings,
   resolveTranscriptSettings,
   saveAiSettings,
+  splitWavIntoChunks,
+  stripAiPreamble,
 } from './ai-service.mjs';
 
 test('buildNoteText 覆盖图文与视频两类内容', () => {
@@ -153,4 +157,85 @@ test('computePendingAiKinds 识别待处理的转写/摘要/拓展', () => {
   assert.deepEqual(computePendingAiKinds(video({}), aiOff), ['transcript']);
   assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOn), ['summary', 'expansion']);
   assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOff), []);
+});
+
+/** 构造一段标准 44 字节头 + PCM 的 WAV（16kHz 单声道 16-bit）。 */
+function makeWav(seconds, sampleRate = 16000) {
+  const bytesPerSec = sampleRate * 2;
+  const dataSize = Math.floor(seconds * bytesPerSec);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, Buffer.alloc(dataSize)]);
+}
+
+test('parseWavHeader 解析标准 WAV 头并推算时长', () => {
+  const info = parseWavHeader(makeWav(2.5));
+  assert.equal(info.sampleRate, 16000);
+  assert.equal(info.channels, 1);
+  assert.equal(info.bitsPerSample, 16);
+  assert.equal(info.dataSize, Math.floor(2.5 * 32000));
+  assert.ok(Math.abs(info.duration - 2.5) < 0.001);
+  assert.throws(() => parseWavHeader(Buffer.alloc(10)), /不是有效的 WAV 数据/);
+  assert.throws(() => parseWavHeader(Buffer.alloc(100)), /不是有效的 WAV 文件/);
+});
+
+test('splitWavIntoChunks 小音频整体为一片，超阈值按目标时长切块且时间连续', () => {
+  const single = splitWavIntoChunks(makeWav(2));
+  assert.equal(single.length, 1);
+  assert.equal(single[0].startSec, 0);
+  assert.ok(Math.abs(single[0].durationSec - 2) < 0.001);
+
+  // 用极小的 maxBase64 强制切块（模拟超长音频触发分片）
+  const chunks = splitWavIntoChunks(makeWav(10), 2, 64);
+  assert.ok(chunks.length > 1);
+  let expectedStart = 0;
+  for (const chunk of chunks) {
+    assert.ok(Math.abs(chunk.startSec - expectedStart) < 0.001);
+    const info = parseWavHeader(chunk.buffer);
+    assert.ok(info.dataSize > 0);
+    assert.ok(Math.abs(info.duration - chunk.durationSec) < 0.001);
+    expectedStart = chunk.startSec + chunk.durationSec;
+  }
+  assert.ok(Math.abs(expectedStart - 10) < 0.001);
+});
+
+test('buildTimedSegments 把分片文本切成句子级带时间码分段', () => {
+  const segments = buildTimedSegments([
+    { text: '第一句。第二句！', start: 0, duration: 10 },
+    { text: '第三句？', start: 10, duration: 5 },
+  ]);
+  assert.equal(segments.length, 3);
+  assert.equal(segments[0].text, '第一句。');
+  assert.equal(segments[0].start, 0);
+  assert.ok(segments[0].duration > 0 && segments[0].duration < 10);
+  assert.equal(segments[1].text, '第二句！');
+  assert.ok(segments[1].start > 0);
+  assert.equal(segments[2].text, '第三句？');
+  assert.equal(segments[2].start, 10);
+});
+
+test('stripAiPreamble 摘掉开场白、保留正文、不误删正常内容', () => {
+  const withPreamble = '好的，围绕「用AI做日程管理」这个主题，这里整理了一份知识拓展，帮你更系统地理解背后的技术、玩法和实践建议。\n\n1. 第一点\n2. 第二点';
+  const stripped = stripAiPreamble(withPreamble);
+  assert.ok(!stripped.startsWith('好的'));
+  assert.ok(stripped.includes('1. 第一点'));
+  assert.ok(stripped.includes('2. 第二点'));
+
+  const clean = '- 要点一\n- 要点二';
+  assert.equal(stripAiPreamble(clean), clean);
+
+  assert.equal(stripAiPreamble('这是一个正常的知识点说明'), '这是一个正常的知识点说明');
+  assert.equal(stripAiPreamble(''), '');
 });
