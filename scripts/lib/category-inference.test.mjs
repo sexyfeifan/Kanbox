@@ -83,9 +83,10 @@ test('reCategorizeNotes reclassifies 待分类 notes and leaves determined categ
   assert.equal(result.notes[0].category, '编程开发');
   assert.equal(result.notes[1].category, 'AI工具');
   assert.equal(result.notes[2].category, '设计美学'); // 不动已确定分类
-  assert.equal(result.notes[3].category, '待分类'); // 推断不出 → 保持待分类
+  assert.equal(result.notes[3].category, '其他'); // 推断不出 → 兜底「其他」
   assert.equal(result.reclassified, 2);
   assert.equal(result.remaining, 1);
+  assert.equal(result.changed, true);
   assert.deepEqual(result.reclassifiedIds, ['a', 'b']);
 });
 
@@ -106,4 +107,49 @@ test('reCategorizeNotes is a no-op when nothing to reclassify', () => {
   assert.equal(result.notes[0].category, '旅行户外');
   assert.equal(result.reclassified, 0);
   assert.equal(result.remaining, 0);
+  assert.equal(result.changed, false);
+});
+
+test('classifies router/device notes as digital hardware', () => {
+  const category = inferCategoryFromNote({
+    title: '这个百元路由器性价比拉满',
+    content: '路由器测评，信号、散热、稳定性对比',
+    rawContent: '',
+    tags: ['数码', '路由器'],
+  });
+
+  assert.equal(category, '数码硬件');
+});
+
+test('classifies outfit/beauty notes as fashion beauty', () => {
+  const category = inferCategoryFromNote({
+    title: '秋冬穿搭公式，显瘦显高',
+    content: '毛衣叠穿、配色、发型建议',
+    rawContent: '',
+    tags: ['穿搭', '时尚'],
+  });
+
+  assert.equal(category, '时尚美妆');
+});
+
+test('falls back to 其他 when no category is confident', () => {
+  const category = inferCategoryFromNote({
+    title: '先这样！再那样！',
+    content: '随便记一下',
+    rawContent: '',
+    tags: [],
+  });
+
+  assert.equal(category, '其他');
+});
+
+test('reCategorizeNotes migrates 待分类 notes to 其他 fallback when undeterminable', () => {
+  const notes = [
+    { id: 'x', title: '水笔记', content: '水', tags: [], category: '待分类' },
+  ];
+  const result = reCategorizeNotes(notes);
+  assert.equal(result.notes[0].category, '其他');
+  assert.equal(result.reclassified, 0);
+  assert.equal(result.remaining, 1);
+  assert.equal(result.changed, true);
 });

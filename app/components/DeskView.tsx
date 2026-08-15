@@ -140,7 +140,8 @@ const CAT_COLORS: Record<string, string> = {
   艺术:     '#B5849B', 创作:     '#B07856', 户外:     '#6E8E7A',
   AI工具:   '#6B8799', 编程开发: '#5E7FA3', 旅行户外: '#6E8E7A',
   美食餐饮: '#A67C52', 影像创作: '#B07856', 方法论:   '#829987',
-  生活方式: '#8BA882',
+  生活方式: '#8BA882', 数码硬件: '#5E86A8', 时尚美妆: '#C08BA0',
+  其他:     '#9A958E',
 };
 const catColor = (c: string) => CAT_COLORS[c] ?? '#829987';
 
@@ -2547,7 +2548,7 @@ export function DeskView() {
       const result = await reCategorizeAllNotes();
       setNotes(result.notes);
       if (result.reclassified > 0) {
-        setImportFeedback({ phase: 'complete', title: t('reCategorizedTitle'), message: `${result.reclassified} 条${result.remaining > 0 ? `，还有 ${result.remaining} 条待整理` : ''}` });
+        setImportFeedback({ phase: 'complete', title: t('reCategorizedTitle'), message: `${result.reclassified} 条${result.remaining > 0 ? `，还有 ${result.remaining} 条归入「其他」` : ''}` });
         dismissImportFeedback('complete', 2600);
       } else {
         setImportFeedback({ phase: 'complete', title: t('reCategorizeNone'), message: t('reCategorizeNoneHint') });

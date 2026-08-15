@@ -63,7 +63,7 @@ function compactNote(note) {
     id: note.id,
     title: note.title || '未命名笔记',
     author: note.author?.name || '未知作者',
-    category: note.category || '待分类',
+    category: note.category || '其他',
     tags: Array.isArray(note.tags) ? note.tags : [],
     savedAt: note.savedAt || null,
     excerpt: noteExcerpt(note),

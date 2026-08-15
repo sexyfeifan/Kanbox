@@ -32,6 +32,14 @@ const CATEGORY_RULES = [
     tagBoost: [/设计|品牌|视觉|ascii|排版|ui|ux|审美/i],
   },
   {
+    category: '时尚美妆',
+    strong: [
+      /穿搭|美妆|护肤|彩妆|口红|香水|化妆|发型|发色|ootd|时尚|衣服|裙子|美甲|美容|皮肤|粉底|眼影|腮红|防晒|面膜|精华|衣品/i,
+    ],
+    weak: [/变美|气质|身材|配色|高级感|搭配|显瘦|显高/i],
+    tagBoost: [/穿搭|美妆|护肤|彩妆|时尚|ootd|发型|衣品/i],
+  },
+  {
     category: '旅行户外',
     strong: [
       /旅行|旅游|徒步|环线|自驾|景点|路线|机票|酒店|露营|city walk|户外|游记|登山|雪山|海拔|香格里拉|腾冲|芒市|川西|冰岛|青海|漠河|阿拉木图|乌孙古道/i,
@@ -52,6 +60,14 @@ const CATEGORY_RULES = [
     tagBoost: [/摄影|电影|镜头|影像|分镜|动画|短片|游戏/i],
   },
   {
+    category: '数码硬件',
+    strong: [
+      /路由器|手机|电脑|笔记本|键盘|鼠标|显示器|耳机|音箱|音响|平板|手表|手环|智能家居|芯片|cpu|gpu|显卡|内存|硬盘|固态硬盘|ssd|nas|充电器|充电宝|电池|相机|无人机|数码|电子产品|家电|处理器|屏幕|续航|散热|开箱/i,
+    ],
+    weak: [/测评|评测|性价比|参数|配置|性能|硬件/i],
+    tagBoost: [/数码|硬件|测评|评测|开箱|路由器|手机|电脑|键盘|耳机|相机/i],
+  },
+  {
     category: '方法论',
     strong: [/方法|步骤|教程|指南|清单|复盘|框架|流程|避坑|经验/i],
     weak: [/执行|打法|策略/i],
@@ -70,12 +86,22 @@ const CATEGORY_PRIORITY = [
   'AI工具',
   '阅读思考',
   '设计美学',
+  '时尚美妆',
   '旅行户外',
   '美食餐饮',
   '影像创作',
+  '数码硬件',
   '方法论',
   '生活方式',
 ];
+
+// 「其他」是兜底分类：分类器尽力推断仍无法确定具体分类时，笔记落进这里，
+// 而不是停留在「待分类」→「待整理」inbox 里积压。
+const FALLBACK_CATEGORY = '其他';
+
+// 这些值都表示「尚未确定具体分类」，重新归档（reCategorizeNotes）时会重新推断。
+// 「待分类」是历史遗留/过渡态值；「其他」是当前兜底分类；空串表示尚未分类。
+const NON_SPECIFIC_CATEGORIES = new Set(['', '待分类', FALLBACK_CATEGORY]);
 
 function hitScore(text, regs, weight) {
   if (!regs || regs.length === 0) return 0;
@@ -119,7 +145,7 @@ export function inferCategoryFromNote(note) {
     scores.set('AI工具', Math.max(0, (scores.get('AI工具') || 0) - 1));
   }
 
-  let bestCategory = '待分类';
+  let bestCategory = FALLBACK_CATEGORY;
   let bestScore = 0;
 
   for (const category of CATEGORY_PRIORITY) {
@@ -130,33 +156,40 @@ export function inferCategoryFromNote(note) {
     }
   }
 
-  return bestScore >= 2 ? bestCategory : '待分类';
+  return bestScore >= 2 ? bestCategory : FALLBACK_CATEGORY;
 }
 
 
-// 对「未分类 / 待分类」的笔记重新跑分类推断（用于「重新归档」）。
-// 只重算 category 缺失/空/「待分类」的笔记，绝不动已有确定分类的笔记（可能是用户手动改的）。
-// 返回 { notes, reclassified, reclassifiedIds, remaining }。
+// 对「未确定具体分类」的笔记重新跑分类推断（用于「重新归档」）。
+// 只重算 category 缺失/空/「待分类」/「其他」的笔记，绝不动已有确定分类的笔记（可能是用户手动改的）。
+// 推断出具体分类 → 写回；推断不出 → 落进兜底分类「其他」（并把历史「待分类」一并迁移过来，清空待整理）。
+// 返回 { notes, reclassified, remaining, reclassifiedIds, changed }。
 export function reCategorizeNotes(notes) {
   const list = Array.isArray(notes) ? notes : [];
   let reclassified = 0;
   let remaining = 0;
+  let changed = false;
   const reclassifiedIds = [];
 
   const updated = list.map((note) => {
     const current = String(note?.category || '').trim();
-    if (current && current !== '待分类') {
+    if (current && !NON_SPECIFIC_CATEGORIES.has(current)) {
       return note;
     }
     const inferred = inferCategoryFromNote(note);
-    if (inferred && inferred !== '待分类') {
+    if (inferred !== FALLBACK_CATEGORY) {
       reclassified += 1;
       reclassifiedIds.push(note.id);
+      changed = true;
       return { ...note, category: inferred };
     }
     remaining += 1;
+    if (current !== FALLBACK_CATEGORY) {
+      changed = true;
+      return { ...note, category: FALLBACK_CATEGORY };
+    }
     return note;
   });
 
-  return { notes: updated, reclassified, reclassifiedIds, remaining };
+  return { notes: updated, reclassified, remaining, reclassifiedIds, changed };
 }

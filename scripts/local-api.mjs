@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { inferCategoryFromNote, reCategorizeNotes } from './lib/category-inference.mjs';
+import { FALLBACK_CATEGORY, inferCategoryFromNote, reCategorizeNotes } from './lib/category-inference.mjs';
 import { recoverCachedNoteCovers } from './lib/cache-cover-recovery.mjs';
 import { summarizeNote } from './lib/text-summary.mjs';
 import {
@@ -847,7 +847,7 @@ async function updateNote(noteId, updates = {}) {
   // 之前这里无条件 inferCategoryFromNote，会吞掉前端拖拽改分类的意图——拖到新分类刷新后又弹回原分类。
   if (typeof updates.category === 'string') {
     const cleanedCategory = updates.category.trim();
-    updated.category = cleanedCategory || '待分类';
+    updated.category = cleanedCategory || FALLBACK_CATEGORY;
   } else {
     updated.category = inferCategoryFromNote(updated);
   }
@@ -1339,8 +1339,8 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/notes/re-categorize') {
       sendJson(request, response, 200, await queueMutation(async () => {
         const notes = await readNotes();
-        const { notes: updated, reclassified, remaining, reclassifiedIds } = reCategorizeNotes(notes);
-        if (reclassified > 0) {
+        const { notes: updated, reclassified, remaining, reclassifiedIds, changed } = reCategorizeNotes(notes);
+        if (changed) {
           await writeNotes(updated);
         }
         broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });

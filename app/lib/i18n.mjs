@@ -94,7 +94,7 @@
     aiProcessingProgress: 'AI 处理中',
     reCategorizedTitle: '重新归档完成',
     reCategorizeNone: '没有可归档的笔记',
-    reCategorizeNoneHint: '待整理里的笔记暂时无法确定分类',
+    reCategorizeNoneHint: '暂时无法确定分类的笔记已归入「其他」',
     reCategorizeFail: '重新归档失败',
   },
   'en': {
@@ -192,7 +192,7 @@
     aiProcessingProgress: 'AI processing',
     reCategorizedTitle: 'Re-archive complete',
     reCategorizeNone: 'No notes to re-archive',
-    reCategorizeNoneHint: 'Notes in inbox cannot be classified yet',
+    reCategorizeNoneHint: 'Notes that cannot be classified are now in "Other"',
     reCategorizeFail: 'Re-archive failed',
   },
   'ja': {
@@ -290,7 +290,7 @@
     aiProcessingProgress: 'AI 処理中',
     reCategorizedTitle: '再分類完了',
     reCategorizeNone: '分類可能なメモがありません',
-    reCategorizeNoneHint: '整理待ちのメモはまだ分類を確定できません',
+    reCategorizeNoneHint: '分類を確定できないメモは「その他」に入りました',
     reCategorizeFail: '再分類に失敗しました',
   },
   'zh-TW': {
@@ -388,7 +388,7 @@
     aiProcessingProgress: 'AI 處理中',
     reCategorizedTitle: '重新歸檔完成',
     reCategorizeNone: '沒有可歸檔的筆記',
-    reCategorizeNoneHint: '待整理裡的筆記暫時無法確定分類',
+    reCategorizeNoneHint: '暫時無法確定分類的筆記已歸入「其他」',
     reCategorizeFail: '重新歸檔失敗',
   },
 };

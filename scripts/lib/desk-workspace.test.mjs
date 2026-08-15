@@ -134,3 +134,13 @@ test('ensureDeskState: custom group-xxx mapping is still respected over category
 
   assert.equal(state.noteGroupMap.n1, 'group-custom1');
 });
+
+test('ensureDeskState routes fallback 其他 notes to their auto group (not inbox)', () => {
+  const next = ensureDeskState({}, [
+    ...notes,
+    { id: 'n6', title: '第六条', category: '其他' },
+  ]);
+
+  assert.equal(next.noteGroupMap.n6, 'auto:其他');
+  assert.equal(next.groups.some((group) => group.id === 'auto:其他'), true);
+});
