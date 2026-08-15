@@ -13,6 +13,7 @@ import { summarizeNote } from './lib/text-summary.mjs';
 import {
   computePendingAiKinds,
   expandWithAi,
+  hasTranscript,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
@@ -22,6 +23,7 @@ import {
   testAi,
   testTranscription,
   transcribeWithAi,
+  VideoNeedsTranscriptError,
 } from './lib/ai-service.mjs';
 import { localizeNoteMedia } from './lib/media-import.mjs';
 import { localizeNoteVideo, reanalyzeStoredNoteVideo } from './lib/video-import.mjs';
@@ -992,7 +994,9 @@ async function runPipelineStep(noteId, kind) {
     });
     return { ok: true };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    // 视频笔记尚无文稿：把「需要先转写」透传给调用方，而不是退化成浅拓展。
+    return { error: message, needsTranscript: error instanceof VideoNeedsTranscriptError };
   }
 }
 
@@ -1006,6 +1010,25 @@ async function processPipelineItem(item) {
     }
     pipeline.doneCount += 1;
     broadcastPipelineProgress();
+    // 转写成功后补排 summary/expansion：视频笔记的摘要/拓展依赖文稿，
+    // 文稿就绪前 computePendingAiKinds 不会把它们标为待处理（见 ai-service.mjs）。
+    if (kind === 'transcript' && !result?.error) {
+      await enqueueFollowUpAiKinds(item.noteId);
+    }
+  }
+}
+
+/** 转写完成后，重新评估该笔记并补排摘要/知识拓展（走同一串行队列）。 */
+async function enqueueFollowUpAiKinds(noteId) {
+  try {
+    const aiSettings = await loadAiSettings(dataDirectory);
+    const notes = await readNotes();
+    const note = notes.find((entry) => entry.id === noteId);
+    if (!note) return;
+    const followUp = computePendingAiKinds(note, aiSettings).filter((kind) => kind === 'summary' || kind === 'expansion');
+    if (followUp.length > 0) enqueuePipeline(noteId, followUp);
+  } catch (error) {
+    console.error('[kanbox] 补排后续 AI 任务失败:', error?.message || error);
   }
 }
 
@@ -1341,7 +1364,18 @@ const server = createServer(async (request, response) => {
       }
       const note = notes[noteIndex];
       const aiSettings = await loadAiSettings(dataDirectory);
-      const expansion = await expandWithAi(aiSettings, note);
+      let expansion;
+      try {
+        expansion = await expandWithAi(aiSettings, note);
+      } catch (error) {
+        // 视频笔记尚无文稿：不产出「仅标题」的浅拓展，自动补排转写并提示前端等待。
+        if (error instanceof VideoNeedsTranscriptError) {
+          enqueuePipeline(noteId, ['transcript']);
+          sendJson(request, response, 200, { ok: false, needsTranscript: true, error: error.message });
+          return;
+        }
+        throw error;
+      }
       // 走队列串行化「重读→合并→写回」，只写入新字段，避免覆盖 AI 生成期间用户的操作（B4 修复）
       const persisted = await queueMutation(async () => {
         const latestNotes = await readNotes();

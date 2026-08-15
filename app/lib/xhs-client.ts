@@ -509,13 +509,17 @@ export async function getNoteSummary(noteId: string): Promise<{ summary: string;
   return { summary: data.summary || '', note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note };
 }
 
-export async function getNoteExpansion(noteId: string): Promise<{ expansion: string; note: Note }> {
-  const data = await fetchLocalApi<{ ok: boolean; expansion: string; note?: RawNote }>(
+export async function getNoteExpansion(noteId: string): Promise<{ expansion: string; note: Note; needsTranscript?: boolean }> {
+  const data = await fetchLocalApi<{ ok: boolean; expansion: string; note?: RawNote; needsTranscript?: boolean }>(
     `/notes/${noteId}/expand`,
     { method: 'POST' },
     90_000,
   );
-  return { expansion: data.expansion || '', note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note };
+  return {
+    expansion: data.expansion || '',
+    note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note,
+    needsTranscript: data.needsTranscript === true,
+  };
 }
 
 export async function transcribeNoteVideo(noteId: string): Promise<{ notes: Note[]; note: Note }> {

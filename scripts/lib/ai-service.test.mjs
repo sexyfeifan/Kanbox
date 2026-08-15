@@ -5,9 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  buildKnowledgeSource,
   buildNoteText,
   buildTimedSegments,
   computePendingAiKinds,
+  hasTranscript,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
@@ -18,6 +20,7 @@ import {
   saveAiSettings,
   splitWavIntoChunks,
   stripAiPreamble,
+  VideoNeedsTranscriptError,
 } from './ai-service.mjs';
 
 test('buildNoteText 覆盖图文与视频两类内容', () => {
@@ -151,12 +154,44 @@ test('computePendingAiKinds 识别待处理的转写/摘要/拓展', () => {
   const aiOff = { enabled: false };
   const video = (extra) => ({ type: 'video', videoUrl: 'http://127.0.0.1/media/x/video.mp4', ...extra });
 
-  assert.deepEqual(computePendingAiKinds(video({}), aiOn), ['transcript', 'summary', 'expansion']);
+  // 视频无文稿：只转写，摘要/拓展等文稿就绪后再补排（避免基于标题的浅拓展）。
+  assert.deepEqual(computePendingAiKinds(video({}), aiOn), ['transcript']);
+  assert.deepEqual(computePendingAiKinds(video({ transcriptText: '已有' }), aiOn), ['summary', 'expansion']);
   assert.deepEqual(computePendingAiKinds(video({ transcriptText: '已有', aiSummary: '有', aiExpansion: '有' }), aiOn), []);
-  assert.deepEqual(computePendingAiKinds(video({ transcriptText: '', transcriptSkipped: true }), aiOn), ['summary', 'expansion']);
+  assert.deepEqual(computePendingAiKinds(video({ transcriptText: '', transcriptSkipped: true }), aiOn), []);
   assert.deepEqual(computePendingAiKinds(video({}), aiOff), ['transcript']);
   assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOn), ['summary', 'expansion']);
   assert.deepEqual(computePendingAiKinds({ type: 'normal' }, aiOff), []);
+});
+
+test('hasTranscript 判定视频是否已有可用文稿', () => {
+  assert.equal(hasTranscript({ type: 'video', transcriptText: '有内容' }), true);
+  assert.equal(hasTranscript({ type: 'video', transcriptText: '   ' }), false);
+  assert.equal(hasTranscript({ type: 'video' }), false);
+  assert.equal(hasTranscript({}), false);
+});
+
+test('buildKnowledgeSource 按类型区分内容源', () => {
+  // 视频：以文稿为准，且不混入正文（避免把「仅标题/正文」当拓展素材）
+  const videoSource = buildKnowledgeSource({ type: 'video', title: '标题', transcriptText: '视频文稿内容' });
+  assert.ok(videoSource.includes('【视频文稿】视频文稿内容'));
+  assert.ok(!videoSource.includes('【正文】'));
+  // 视频无文稿 → null（调用方据此等待转写）
+  assert.equal(buildKnowledgeSource({ type: 'video', title: '标题' }), null);
+  assert.equal(buildKnowledgeSource({ type: 'video', transcriptText: '   ' }), null);
+  // 图文：标题 + 正文 + OCR
+  const noteSource = buildKnowledgeSource({ type: 'normal', title: '标题', rawContent: '正文', ocrText: 'OCR' });
+  assert.ok(noteSource.includes('【标题】标题'));
+  assert.ok(noteSource.includes('【正文】正文'));
+  assert.ok(noteSource.includes('【图片文字】OCR'));
+  assert.ok(!noteSource.includes('【视频文稿】'));
+  assert.equal(buildKnowledgeSource({ type: 'normal' }), '');
+});
+
+test('VideoNeedsTranscriptError 携带可判定的 code', () => {
+  const err = new VideoNeedsTranscriptError();
+  assert.equal(err.code, 'VIDEO_NEEDS_TRANSCRIPT');
+  assert.ok(err instanceof Error);
 });
 
 /** 构造一段标准 44 字节头 + PCM 的 WAV（16kHz 单声道 16-bit）。 */

@@ -1019,7 +1019,17 @@ function ExpandedCard({
                   setExpansionLoading(true);
                   setExpansionError('');
                   try {
-                    const result = await getNoteExpansion(note.id);
+                    // 视频笔记尚无文稿：先转写，再基于文稿拓展（信息更丰富）
+                    if (note.type === 'video' && !(note.transcriptSegments?.length)) {
+                      setExpansionError('视频尚未转写，正在自动转写文稿…');
+                      await onTranscribe();
+                    }
+                    let result = await getNoteExpansion(note.id);
+                    if (result.needsTranscript) {
+                      // 后端兜底：转写失败/被跳过，仍无文稿
+                      setExpansionError('视频文稿尚未生成，请先在文稿页签点击「生成文稿」后重试');
+                      return;
+                    }
                     setExpansion(result.expansion);
                     if (result.note) onNoteChanged(result.note);
                   } catch (error) {

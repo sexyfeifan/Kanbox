@@ -112,12 +112,19 @@ export function isTranscriptEnhanceConfigured(aiSettings) {
   return Boolean(resolved.endpoint && resolved.apiKey && resolved.model);
 }
 
+/** 判断视频笔记是否已有可用文稿（知识拓展/摘要的上下文来源）。 */
+export function hasTranscript(note) {
+  return typeof note?.transcriptText === 'string' && note.transcriptText.trim().length > 0;
+}
+
 /**
  * 计算一条笔记还有哪些 AI 任务「待处理」（用于收录后的自动流水线与手动全局补跑）。
  * 返回子集，可能包含 'transcript' | 'summary' | 'expansion'。
  * - transcript：视频已本地化、尚未转写，且用户没有明确关闭自动转写（transcriptSkipped）；
  * - summary：AI 已配置且尚未生成摘要；
  * - expansion：AI 已配置且尚未生成知识拓展。
+ * 视频笔记的摘要/拓展必须建立在文稿之上——文稿缺失时暂不标为待处理，等转写完成后
+ * 由流水线补排（见 local-api.mjs 的 enqueueFollowUpAiKinds），避免基于标题的「浅拓展」。
  */
 export function computePendingAiKinds(note, aiSettings) {
   const pending = [];
@@ -125,11 +132,13 @@ export function computePendingAiKinds(note, aiSettings) {
   const hasVideo = isVideo && typeof note?.videoUrl === 'string' && note.videoUrl.trim().length > 0;
   const aiOn = isAiConfigured(aiSettings);
 
-  if (hasVideo && !note.transcriptText && !note.transcriptSkipped) {
+  if (hasVideo && !hasTranscript(note) && !note.transcriptSkipped) {
     pending.push('transcript');
   }
-  if (aiOn && !note.aiSummary) pending.push('summary');
-  if (aiOn && !note.aiExpansion) pending.push('expansion');
+  // 视频笔记：文稿就绪（或非视频）才把摘要/拓展列为待处理。
+  const videoReady = !hasVideo || hasTranscript(note);
+  if (aiOn && videoReady && !note.aiSummary) pending.push('summary');
+  if (aiOn && videoReady && !note.aiExpansion) pending.push('expansion');
   return pending;
 }
 
@@ -544,6 +553,15 @@ export async function chatCompletion(aiSettings, messages, options = {}) {
   }
 }
 
+/** 视频笔记尚无文稿时抛出的哨兵错误（调用方据此等待/触发转写，而非退化成「仅标题」拓展）。 */
+export class VideoNeedsTranscriptError extends Error {
+  constructor() {
+    super('视频尚未转写，无法基于文稿生成知识拓展');
+    this.name = 'VideoNeedsTranscriptError';
+    this.code = 'VIDEO_NEEDS_TRANSCRIPT';
+  }
+}
+
 /** 汇总一条笔记可用于 AI 的文本（覆盖图文与视频两类内容）。 */
 export function buildNoteText(note) {
   const sections = [];
@@ -552,6 +570,29 @@ export function buildNoteText(note) {
   if (note.ocrText) sections.push(`【图片文字】${note.ocrText}`);
   if (note.transcriptText) sections.push(`【视频文稿】${note.transcriptText}`);
   return truncateText(sections.join('\n'));
+}
+
+/**
+ * 构造知识拓展使用的「内容源」，按笔记类型区分：
+ * - 视频笔记：以视频文稿（transcriptText）为准，信息最丰富；文稿缺失时返回 null，
+ *   调用方应等待转写完成，而不是退化成仅标题/正文的「浅拓展」。
+ * - 图文笔记：以标题 + 正文 + 图片 OCR 文字为准。
+ */
+export function buildKnowledgeSource(note) {
+  if (note?.type === 'video') {
+    const transcript = typeof note.transcriptText === 'string' ? note.transcriptText.trim() : '';
+    if (!transcript) return null;
+    const sections = [];
+    if (note.title) sections.push(`【标题】${note.title}`);
+    sections.push(`【视频文稿】${transcript}`);
+    return truncateText(sections.join('\n'));
+  }
+  const sections = [];
+  if (note.title) sections.push(`【标题】${note.title}`);
+  if (note.rawContent || note.content) sections.push(`【正文】${note.rawContent || note.content}`);
+  if (note.ocrText) sections.push(`【图片文字】${note.ocrText}`);
+  const text = sections.join('\n');
+  return text ? truncateText(text) : '';
 }
 
 export async function summarizeWithAi(aiSettings, note) {
@@ -571,8 +612,12 @@ export async function summarizeWithAi(aiSettings, note) {
 }
 
 export async function expandWithAi(aiSettings, note) {
-  const text = buildNoteText(note);
+  const text = buildKnowledgeSource(note);
+  // 视频笔记尚无文稿：不做「仅标题/正文」的浅拓展，抛哨兵让调用方等待/触发转写。
+  if (text === null) throw new VideoNeedsTranscriptError();
   if (!text) return '';
+  const isVideo = note?.type === 'video';
+  const sourceHint = isVideo ? '基于这条视频的文稿' : '基于这条图文内容的标题与正文';
   const content = await chatCompletion(aiSettings, [
     {
       role: 'system',
@@ -580,7 +625,7 @@ export async function expandWithAi(aiSettings, note) {
     },
     {
       role: 'user',
-      content: '请围绕下面这条收藏内容，拓展相关的背景知识、概念解释、延伸话题或实用建议，帮助用户更深入地理解主题。要求：直接输出知识正文，不要任何开场白、寒暄、标题或自我说明（不要写「好的」「以下是」「帮你整理」之类的话），不要复述原文或标题，用中文分点输出，条理清晰。\n\n' + text,
+      content: `请${sourceHint}，拓展相关的背景知识、概念解释、延伸话题或实用建议，帮助用户更深入地理解主题。要求：直接输出知识正文，不要任何开场白、寒暄、标题或自我说明（不要写「好的」「以下是」「帮你整理」之类的话），不要复述原文或标题，用中文分点输出，条理清晰。\n\n` + text,
     },
   ], { temperature: 0.6 });
   return stripAiPreamble(content);
