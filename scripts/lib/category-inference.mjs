@@ -97,7 +97,7 @@ const CATEGORY_PRIORITY = [
 
 // 「其他」是兜底分类：分类器尽力推断仍无法确定具体分类时，笔记落进这里，
 // 而不是停留在「待分类」→「待整理」inbox 里积压。
-const FALLBACK_CATEGORY = '其他';
+export const FALLBACK_CATEGORY = '其他';
 
 // 这些值都表示「尚未确定具体分类」，重新归档（reCategorizeNotes）时会重新推断。
 // 「待分类」是历史遗留/过渡态值；「其他」是当前兜底分类；空串表示尚未分类。
