@@ -269,7 +269,7 @@ export async function importSharedNote(input: string): Promise<ImportNoteResult>
   };
 }
 
-export async function updateNote(noteId: string, updates: { title?: string; tags?: string[] }): Promise<UpdateNoteResult> {
+export async function updateNote(noteId: string, updates: { title?: string; tags?: string[]; category?: string }): Promise<UpdateNoteResult> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];
     note?: RawNote;

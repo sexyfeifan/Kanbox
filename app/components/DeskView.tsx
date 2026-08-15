@@ -1573,7 +1573,21 @@ export function DeskView() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const [deskState, setDeskState] = useState<DeskState>({ groups: [], noteGroupMap: {}, knownNoteIds: [] });
+  const [deskState, setDeskState] = useState<DeskState>(() => {
+    if (typeof window === 'undefined') {
+      return { groups: [], noteGroupMap: {}, knownNoteIds: [] };
+    }
+    try {
+      const saved = window.localStorage.getItem(DESK_WORKSPACE_STORAGE_KEY);
+      const parsed = saved ? (JSON.parse(saved) as DeskState) : null;
+      if (parsed && Array.isArray(parsed.groups) && parsed.noteGroupMap && typeof parsed.noteGroupMap === 'object') {
+        return parsed;
+      }
+    } catch {
+      // fall through
+    }
+    return { groups: [], noteGroupMap: {}, knownNoteIds: [] };
+  });
   const [scrollY, setScrollY] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Note | null>(null);
@@ -2027,6 +2041,21 @@ export function DeskView() {
   const handleMoveNoteToGroup = (noteId: string, groupId: string) => {
     setDeskState((prev) => moveNoteToGroup(prev, noteId, groupId) as DeskState);
     setDropTargetGroupId(null);
+
+    // 目标是「分类分组」(auto:<category>) 或「待分类」(inbox) 时，把分类持久化到后端 notes.json
+    let nextCategory: string | null = null;
+    if (groupId.startsWith('auto:')) {
+      nextCategory = groupId.slice('auto:'.length);
+    } else if (groupId === 'inbox') {
+      nextCategory = '待分类';
+    }
+    if (!nextCategory) return; // 自定义分组(group-xxx)仅本地 overlay，不改 category
+
+    void updateNote(noteId, { category: nextCategory })
+      .then((result) => setNotes(result.notes))
+      .catch((error) => {
+        console.error('分类保存失败:', error);
+      });
   };
 
   const handleDeleteNote = async (note: Note) => {

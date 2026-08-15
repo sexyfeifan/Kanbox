@@ -843,7 +843,14 @@ async function updateNote(noteId, updates = {}) {
     updated.tags = [...new Set(updates.tags.map(t => String(t || '').trim()).filter(Boolean).slice(0, 20))];
   }
 
-  updated.category = inferCategoryFromNote(updated);
+  // 分类：显式传入（拖拽到某个分类分组）时以传入值为准，否则按内容重新推断。
+  // 之前这里无条件 inferCategoryFromNote，会吞掉前端拖拽改分类的意图——拖到新分类刷新后又弹回原分类。
+  if (typeof updates.category === 'string') {
+    const cleanedCategory = updates.category.trim();
+    updated.category = cleanedCategory || '待分类';
+  } else {
+    updated.category = inferCategoryFromNote(updated);
+  }
 
   const updatedNotes = [...existingNotes];
   updatedNotes[noteIndex] = updated;
