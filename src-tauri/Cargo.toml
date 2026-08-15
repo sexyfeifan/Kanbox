@@ -1,6 +1,6 @@
 [package]
 name = "kanbox"
-version = "0.6.0"
+version = "0.6.1"
 description = "Local desktop shell for Kanbox"
 authors = ["sexyfeifan"]
 edition = "2021"

@@ -159,9 +159,20 @@ export function reflowTranscriptText(text, options = {}) {
     .replace(/\s*\n+\s*/g, ' ')
     .replace(/[ \t]+/g, ' ')
     .trim();
-  const sentences = splitTranscriptSentences(flattened);
   const maxSentences = options.maxSentences ?? 3;
   const maxChars = options.maxChars ?? 120;
+  // 无标点长文本兜底：单句超过 hardSplitMax 时按字数硬切，避免「一面墙」
+  const hardSplitMax = Math.max(maxChars, options.hardSplitMax ?? maxChars * 2);
+  const sentences = [];
+  for (const sentence of splitTranscriptSentences(flattened)) {
+    if (sentence.length <= hardSplitMax) {
+      sentences.push(sentence);
+    } else {
+      for (let i = 0; i < sentence.length; i += hardSplitMax) {
+        sentences.push(sentence.slice(i, i + hardSplitMax));
+      }
+    }
+  }
   const paragraphs = [];
   let current = '';
   let currentCount = 0;
@@ -200,8 +211,6 @@ export function applyVideoAnalysis(note, analysis, localVideoUrl, transcriptEngi
     videoStatus: warnings ? 'partial' : 'ready',
     videoError: warnings,
   };
-  delete updated.videoOcrText;
-  delete updated.videoOcrSegments;
   delete updated.transcriptSkipped;
   delete updated.transcriptStatus;
   return updated;

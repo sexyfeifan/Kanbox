@@ -318,6 +318,7 @@ function ExpandedCard({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
   const newTagInputRef = useRef<HTMLInputElement>(null);
+  const cancelEditingRef = useRef(false);
   const sourceImageUrls = Array.from(new Set(
     note.imageUrls?.length ? note.imageUrls : (note.coverUrl ? [note.coverUrl] : []),
   ));
@@ -608,9 +609,10 @@ function ExpandedCard({
                     }
                     setEditingTitle(false);
                   }
-                  if (e.key === 'Escape') { setEditingTitle(false); }
+                  if (e.key === 'Escape') { cancelEditingRef.current = true; setEditingTitle(false); }
                 }}
                 onBlur={() => {
+                  if (cancelEditingRef.current) { cancelEditingRef.current = false; return; }
                   if (titleDraft.trim() && titleDraft.trim() !== note.title) {
                     onUpdate({ title: titleDraft.trim() });
                   }
@@ -629,7 +631,7 @@ function ExpandedCard({
             )}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#9A958D', fontSize: 11 }}>
-            <span>@{note.author.name}</span>
+            <span>@{note.author?.name ?? ''}</span>
             <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#C7C2BA' }} />
             <span>{formatDate(note.savedAt)}</span>
             {note.sourceUrl && (
@@ -637,7 +639,14 @@ function ExpandedCard({
                 href={note.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const sourceUrl = note.sourceUrl as string;
+                  void openExternalUrl(sourceUrl).catch(() => {
+                    window.location.href = sourceUrl;
+                  });
+                }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 5,
                   color: '#8D8881', fontSize: 11, textDecoration: 'none',
@@ -735,7 +744,7 @@ function ExpandedCard({
                     type="button"
                     onClick={() => {
                       setTranscribing(true);
-                      void onTranscribe().finally(() => setTranscribing(false));
+                      void onTranscribe().catch(() => {}).finally(() => setTranscribing(false));
                     }}
                     disabled={transcribing}
                     style={{
@@ -816,7 +825,7 @@ function ExpandedCard({
                         onUpdate({ tags: newTags });
                         setEditingTagIndex(null);
                       }
-                      if (e.key === 'Escape') { setEditingTagIndex(null); }
+                      if (e.key === 'Escape') { cancelEditingRef.current = true; setEditingTagIndex(null); }
                       if (e.key === 'Backspace' && tagDraft === '') {
                         const newTags = [...note.tags];
                         newTags.splice(index, 1);
@@ -825,6 +834,7 @@ function ExpandedCard({
                       }
                     }}
                     onBlur={() => {
+                      if (cancelEditingRef.current) { cancelEditingRef.current = false; return; }
                       if (tagDraft.trim() && tagDraft.trim() !== tag) {
                         const newTags = [...note.tags];
                         newTags[index] = tagDraft.trim();
@@ -876,9 +886,10 @@ function ExpandedCard({
                       setNewTagDraft('');
                       setAddingTag(false);
                     }
-                    if (e.key === 'Escape') { setAddingTag(false); setNewTagDraft(''); }
+                    if (e.key === 'Escape') { cancelEditingRef.current = true; setAddingTag(false); setNewTagDraft(''); }
                   }}
                   onBlur={() => {
+                    if (cancelEditingRef.current) { cancelEditingRef.current = false; return; }
                     const trimmed = newTagDraft.trim();
                     if (trimmed && !(note.tags || []).includes(trimmed)) {
                       onUpdate({ tags: [...(note.tags || []), trimmed] });
@@ -1075,7 +1086,7 @@ function ExpandedCard({
           </div>
         </div>
       </motion.div>
-      {lightboxIndex !== null && (
+      {lightboxIndex !== null && imageUrls.length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1610,6 +1621,9 @@ export function DeskView() {
   });
   const [batchProcessing, setBatchProcessing] = useState(false);
 
+  // Track dismissImportFeedback timers for cleanup on unmount
+  const dismissTimersRef = useRef<number[]>([]);
+
   // Onboarding states
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -1658,12 +1672,21 @@ export function DeskView() {
     });
   };
 
+  // Intentionally []: only check once on mount. notes=[] on first render means
+  // this is a genuinely new user; adding [notes] would re-trigger on every load.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const seen = localStorage.getItem('kanbox:onboarding-seen');
     if (!seen && notes.length === 0) {
       setShowOnboarding(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cleanup dismiss timers on unmount
+  useEffect(() => {
+    const timers = dismissTimersRef.current;
+    return () => { timers.forEach((id) => clearTimeout(id)); };
   }, []);
 
   const dismissOnboarding = () => {
@@ -1730,9 +1753,10 @@ export function DeskView() {
   };
 
   const dismissImportFeedback = (phase: ImportPhase, delay = 2800) => {
-    window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
       setImportFeedback((current) => current.phase === phase ? IDLE_IMPORT_FEEDBACK : current);
     }, delay);
+    dismissTimersRef.current.push(timerId);
   };
 
   useEffect(() => {
@@ -1765,6 +1789,12 @@ export function DeskView() {
 
   useEffect(() => {
     if (typeof window === 'undefined') {
+      return;
+    }
+    // Prevent clearing user's manual group assignments when notes hasn't loaded yet.
+    // Without this guard, ensureDeskState(…, []) wipes noteGroupMap/knownNoteIds,
+    // and the persistence effect (below) writes the empty map back to localStorage.
+    if (notes.length === 0) {
       return;
     }
 
@@ -1835,7 +1865,7 @@ export function DeskView() {
 
   // Calculate total height for scrolling
   const allY = Object.values(positions).map(p => p.y);
-  const maxY = allY.length > 0 ? Math.max(...allY) : 0;
+  const maxY = allY.reduce((max, y) => Math.max(max, y), 0);
   const minH = Math.ceil(Math.max(labels.length, 1) / (dims.w > 900 ? 3 : 2)) * 320 + 160;
   const containerH = Math.max(maxY + CARD_H + 100, minH);
 
@@ -2017,7 +2047,7 @@ export function DeskView() {
       const message = error instanceof Error && error.message ? error.message : '转写失败';
       setImportFeedback({ phase: 'error', title: '转写失败', message });
       dismissImportFeedback('error', 3200);
-      throw error;
+      // Error already displayed to user — don't re-throw to avoid unhandled rejection
     }
   };
 
@@ -2075,7 +2105,13 @@ export function DeskView() {
   const handleGroupDrop = (targetGroupId: string) => {
     if (draggingGroupId && targetGroupId !== draggingGroupId) {
       setDeskState(prev => {
-        const targetIndex = prev.groups.findIndex(g => g.id === targetGroupId);
+        // For inbox: move note to inbox group via moveNoteToGroup (not reorderGroup)
+        // For regular groups: reorderGroup positions the group in the list
+        if (targetGroupId === 'inbox') {
+          return prev; // Dropping a group onto inbox is a no-op (groups can't become inbox)
+        }
+        const nonInbox = prev.groups.filter(g => g.id !== 'inbox');
+        const targetIndex = nonInbox.findIndex(g => g.id === targetGroupId);
         return reorderGroup(prev, draggingGroupId, targetIndex) as DeskState;
       });
     }
@@ -2173,13 +2209,13 @@ export function DeskView() {
       setAiDraft({
         enabled: settings.enabled,
         endpoint: settings.endpoint,
-        apiKey: '',
+        apiKey: settings.apiKey,
         model: settings.model,
         autoTranscript: settings.autoTranscript,
         enhanceTranscript: settings.enhanceTranscript,
         autoPipeline: settings.autoPipeline,
         transcribeEndpoint: settings.transcribeEndpoint,
-        transcribeApiKey: '',
+        transcribeApiKey: settings.transcribeApiKey,
         transcribeModel: settings.transcribeModel,
       });
     } catch {}
@@ -2194,13 +2230,13 @@ export function DeskView() {
       setAiDraft({
         enabled: saved.enabled,
         endpoint: saved.endpoint,
-        apiKey: '',
+        apiKey: saved.apiKey,
         model: saved.model,
         autoTranscript: saved.autoTranscript,
         enhanceTranscript: saved.enhanceTranscript,
         autoPipeline: saved.autoPipeline,
         transcribeEndpoint: saved.transcribeEndpoint,
-        transcribeApiKey: '',
+        transcribeApiKey: saved.transcribeApiKey,
         transcribeModel: saved.transcribeModel,
       });
       setAiMessage('已保存');
@@ -2342,53 +2378,56 @@ export function DeskView() {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts — handler wrapped in useCallback so the effect
+  // doesn't re-subscribe on every render when the deps are referentially
+  // stable (handleCreateGroup / handleExport are plain functions, but we
+  // keep the deps array correct and memoise the handler itself).
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const isMod = e.metaKey || e.ctrlKey;
+
+    if (isMod && e.key === 'f') {
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      return;
+    }
+
+    if (isMod && e.key === 'n') {
+      e.preventDefault();
+      handleCreateGroup();
+      return;
+    }
+
+    if (isMod && e.key === 'e') {
+      e.preventDefault();
+      void handleExport();
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      if (expanded) {
+        setExpanded(null);
+        return;
+      }
+      if (showPasteInput) {
+        setShowPasteInput(false);
+        setPasteUrl('');
+        return;
+      }
+      if (setupPanel) {
+        setSetupPanel(null);
+        return;
+      }
+      if (searchQuery) {
+        setSearchQuery('');
+        return;
+      }
+    }
+  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      if (isMod && e.key === 'f') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-
-      if (isMod && e.key === 'n') {
-        e.preventDefault();
-        handleCreateGroup();
-        return;
-      }
-
-      if (isMod && e.key === 'e') {
-        e.preventDefault();
-        void handleExport();
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        if (expanded) {
-          setExpanded(null);
-          return;
-        }
-        if (showPasteInput) {
-          setShowPasteInput(false);
-          setPasteUrl('');
-          return;
-        }
-        if (setupPanel) {
-          setSetupPanel(null);
-          return;
-        }
-        if (searchQuery) {
-          setSearchQuery('');
-          return;
-        }
-      }
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
+  }, [handleKeyDown]);
 
   const canUseLocalService = serviceHealth.source === 'sidecar' && serviceHealth.ok;
 
@@ -3478,17 +3517,28 @@ export function DeskView() {
                 已选 {selectedNoteIds.size} 条
               </span>
               <button onClick={async () => {
-                const ids = Array.from(selectedNoteIds);
-                for (const id of ids) {
-                  try {
-                    await deleteStoredNote(id);
-                  } catch { /* ignore */ }
+                if (batchProcessing) return;
+                setBatchProcessing(true);
+                try {
+                  const ids = Array.from(selectedNoteIds);
+                  for (const id of ids) {
+                    try {
+                      await deleteStoredNote(id);
+                    } catch { /* individual delete failure is non-fatal */ }
+                  }
+                  const result = await getNotes();
+                  setNotes(result);
+                  setSelectedNoteIds(new Set());
+                  setBatchMode(false);
+                } catch (error) {
+                  const message = error instanceof Error && error.message ? error.message : '批量删除失败';
+                  setImportFeedback({ phase: 'error', title: '批量删除失败', message });
+                  dismissImportFeedback('error', 3200);
+                } finally {
+                  setBatchProcessing(false);
                 }
-                const result = await getNotes();
-                setNotes(result);
-                setSelectedNoteIds(new Set());
-                setBatchMode(false);
               }}
+                disabled={batchProcessing}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   height: 36, padding: '0 14px', borderRadius: 12,

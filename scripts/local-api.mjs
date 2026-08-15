@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,7 +50,6 @@ const dataDirectory = process.env.LOCAL_APP_DATA_DIR || defaultDataDirectory;
 const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
 const legacyNotesFilePath = path.join(legacyDataDirectory, 'notes.json');
-const notesTempFilePath = path.join(dataDirectory, 'notes.next.json');
 const mediaDirectory = path.join(dataDirectory, 'media');
 const publicBaseUrl = `http://127.0.0.1:${PORT}`;
 const coverCacheDirectories = process.platform === 'darwin'
@@ -60,7 +59,14 @@ const coverCacheDirectories = process.platform === 'darwin'
     ]
   : [];
 let mutationQueue = Promise.resolve();
+// 写操作串行锁 + 唯一临时文件名，防止并发写 notes.json 产生交错/损坏（B1 修复）
+let writeNotesChain = Promise.resolve();
+let writeNotesSeq = 0;
 const sseClients = new Set();
+// /setup 响应缓存，避免重复串行探测 agent（B10 修复）
+let setupResponseCache = null;
+let setupResponseCacheAt = 0;
+const SETUP_RESPONSE_CACHE_TTL_MS = 30_000;
 
 function broadcastUpdate(event) {
   const data = `data: ${JSON.stringify(event)}\n\n`;
@@ -98,6 +104,10 @@ function launchDetached(command, args) {
     detached: true,
     stdio: 'ignore',
   });
+  child.on('error', (error) => {
+    // 避免 open/其它外部命令不存在时产生 unhandled error（B17 修复）
+    console.error(`[kanbox] 启动外部命令失败: ${command}`, error?.message || error);
+  });
   child.unref();
 }
 
@@ -127,7 +137,7 @@ async function resolveAgentExecutable(client) {
   for (const shell of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
     try {
       const { stdout } = await execFileAsync(shell, ['-lc', `command -v ${executableName}`], {
-        timeout: 5000,
+        timeout: 2500,
         maxBuffer: 64 * 1024,
         env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}` },
       });
@@ -142,6 +152,11 @@ async function resolveAgentExecutable(client) {
 }
 
 async function buildSetupResponse() {
+  // 缓存探测结果，避免每次打开设置页都串行探测 agent 造成最多 15s 卡顿（B10 修复）
+  const now = Date.now();
+  if (setupResponseCache && now - setupResponseCacheAt < SETUP_RESPONSE_CACHE_TTL_MS) {
+    return setupResponseCache;
+  }
   const extensionDirectory = resolveExtensionDirectory();
   const mcpServerPath = resolveMcpServerPath();
   const [codexPath, claudePath] = await Promise.all([
@@ -157,7 +172,7 @@ async function buildSetupResponse() {
     }
   }
 
-  return {
+  setupResponseCache = {
     extension: {
       available: Boolean(extensionDirectory),
       path: extensionDirectory,
@@ -174,6 +189,8 @@ async function buildSetupResponse() {
       },
     },
   };
+  setupResponseCacheAt = now;
+  return setupResponseCache;
 }
 
 async function connectAgentClient(client) {
@@ -271,12 +288,32 @@ async function ensureDataDirectory() {
 
 async function readNotesFile(filePath) {
   if (!existsSync(filePath)) return [];
+  let raw;
   try {
-    const raw = JSON.parse(await readFile(filePath, 'utf8'));
-    return Array.isArray(raw) ? raw.filter(isUsableStoredNote) : [];
-  } catch {
+    raw = JSON.parse(await readFile(filePath, 'utf8'));
+  } catch (error) {
+    // 解析失败：先把损坏文件备份下来再返回空，绝不让损坏数据被下一次写操作静默覆盖丢失（B2 修复）
+    const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+    try {
+      await copyFile(filePath, corruptPath);
+    } catch {
+      // 备份失败也不阻断，但绝不能静默丢弃
+    }
+    console.error(`[kanbox] ${filePath} 解析失败，已备份到 ${corruptPath}。原始错误:`, error?.message || error);
     return [];
   }
+  if (!Array.isArray(raw)) {
+    const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+    try {
+      await copyFile(filePath, corruptPath);
+    } catch {
+      // ignore
+    }
+    console.error(`[kanbox] ${filePath} 不是数组，已备份到 ${corruptPath}。`);
+    return [];
+  }
+  // 返回原始数组，不做 isUsableStoredNote 过滤——过滤会在写回前静默丢弃笔记，造成数据丢失
+  return raw;
 }
 
 async function readNotes() {
@@ -296,8 +333,20 @@ async function readNotes() {
 
 async function writeNotes(notes) {
   await ensureDataDirectory();
-  await writeFile(notesTempFilePath, `${JSON.stringify(notes, null, 2)}\n`, 'utf8');
-  await rename(notesTempFilePath, notesFilePath);
+  // 串行化所有写操作，并用唯一临时文件名，避免并发写产生交错/损坏的 notes.json（B1 修复）
+  const run = async () => {
+    const tempPath = path.join(dataDirectory, `notes.${process.pid}.${++writeNotesSeq}.next.json`);
+    try {
+      await writeFile(tempPath, `${JSON.stringify(notes, null, 2)}\n`, 'utf8');
+      await rename(tempPath, notesFilePath);
+    } catch (error) {
+      await rm(tempPath, { force: true }).catch(() => {});
+      throw error;
+    }
+  };
+  const result = writeNotesChain.then(run);
+  writeNotesChain = result.catch(() => undefined);
+  return result;
 }
 
 async function writeLegacyNotes(notes) {
@@ -377,7 +426,8 @@ function getLastImportedAt(notes) {
     .map((note) => new Date(note.savedAt || 0).getTime())
     .filter(Number.isFinite);
   if (timestamps.length === 0) return null;
-  return new Date(Math.max(...timestamps)).toISOString();
+  // 用 reduce 而非 Math.max(...spread)，避免大数组导致调用栈溢出（B16 修复）
+  return new Date(timestamps.reduce((a, b) => Math.max(a, b), -Infinity)).toISOString();
 }
 
 async function getDirectorySize(dirPath) {
@@ -522,16 +572,6 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
   return html;
 }
 
-async function buildDataInfo() {
-  const notes = await readNotes();
-  const mediaSize = await getDirectorySize(mediaDirectory);
-  return {
-    dataDirectory,
-    notesCount: notes.length,
-    mediaSize,
-  };
-}
-
 async function createBackup() {
   const notes = await readNotes();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -558,7 +598,14 @@ async function restoreFromBackup(body) {
   let skippedCount = 0;
 
   for (const note of body.notes) {
-    if (!note.id || typeof note.id !== 'string' || !/^[0-9a-f]{24}$/i.test(note.id) || existingIds.has(note.id)) {
+    if (
+      !note
+      || typeof note.id !== 'string'
+      || !/^[0-9a-f]{24}$/i.test(note.id)
+      || existingIds.has(note.id)
+      || !isUsableStoredNote(note)
+    ) {
+      // 校验字段形状，避免畸形笔记污染 notes.json（B18 修复）
       skippedCount++;
       continue;
     }
@@ -871,7 +918,11 @@ const pipeline = {
   currentNoteId: null,
   currentKind: null,
   errors: [],
+  lastRunErrors: [],  // 上一轮补跑结束时的错误（供前端在按钮恢复后展示「上次有 N 条失败」）
 };
+
+// 延迟入队的 setTimeout 句柄，便于清理/避免泄漏（B14）
+const pendingPipelineTimers = new Set();
 
 function getPipelineStatus() {
   return {
@@ -883,6 +934,7 @@ function getPipelineStatus() {
     currentNoteId: pipeline.currentNoteId,
     currentKind: pipeline.currentKind,
     errors: pipeline.errors.slice(-20),
+    lastRunErrors: pipeline.lastRunErrors.slice(-20),
   };
 }
 
@@ -892,36 +944,52 @@ function broadcastPipelineProgress() {
 
 /** 执行单条笔记的某一类 AI 任务，写回 notes.json 并返回 { ok } 或 { error }。 */
 async function runPipelineStep(noteId, kind) {
-  const notes = await readNotes();
+  let notes;
+  let aiSettings;
+  try {
+    notes = await readNotes();
+    aiSettings = await loadAiSettings(dataDirectory);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
   const idx = notes.findIndex((note) => note.id === noteId);
   if (idx < 0) return { error: '笔记不存在' };
   const note = notes[idx];
-  const aiSettings = await loadAiSettings(dataDirectory);
   try {
-    let updatedNote = note;
+    // 只计算「新字段」，写回时合并到最新笔记上，绝不展开整份旧快照（B3 修复）
+    let patch = {};
+    const fieldsToDelete = [];
     if (kind === 'transcript') {
-      updatedNote = await reanalyzeStoredNoteVideo(note, buildTranscriptOptions(aiSettings));
+      const updated = await reanalyzeStoredNoteVideo(note, buildTranscriptOptions(aiSettings));
+      for (const field of ['videoUrl', 'videoDuration', 'transcriptText', 'transcriptSegments', 'transcriptEngine', 'videoStatus', 'videoError']) {
+        if (updated[field] !== undefined) patch[field] = updated[field];
+      }
+      fieldsToDelete.push('transcriptSkipped', 'transcriptStatus');
     } else if (kind === 'summary') {
       if (isAiConfigured(aiSettings)) {
-        updatedNote = { ...note, aiSummary: await summarizeWithAi(aiSettings, note), aiSummaryEngine: 'ai' };
+        patch = { aiSummary: await summarizeWithAi(aiSettings, note), aiSummaryEngine: 'ai' };
       } else {
-        updatedNote = { ...note, aiSummary: summarizeNote(note), aiSummaryEngine: 'local' };
+        patch = { aiSummary: summarizeNote(note), aiSummaryEngine: 'local' };
       }
     } else if (kind === 'expansion') {
       if (!isAiConfigured(aiSettings)) return { error: 'AI 未配置，无法生成知识拓展' };
-      updatedNote = { ...note, aiExpansion: await expandWithAi(aiSettings, note) };
+      patch = { aiExpansion: await expandWithAi(aiSettings, note) };
     } else {
       return { error: `未知任务类型：${kind}` };
     }
 
-    // 重新读取最新笔记，避免覆盖流水线运行期间的其他改动
-    const latestNotes = await readNotes();
-    const latestIdx = latestNotes.findIndex((item) => item.id === noteId);
-    if (latestIdx >= 0) {
-      latestNotes[latestIdx] = { ...latestNotes[latestIdx], ...updatedNote };
-      await writeNotes(latestNotes);
-      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
-    }
+    // 走 mutationQueue 串行化「重读→合并→写回」，避免与其它编辑产生 lost update（B3/B4 修复）
+    await queueMutation(async () => {
+      const latestNotes = await readNotes();
+      const latestIdx = latestNotes.findIndex((item) => item.id === noteId);
+      if (latestIdx >= 0) {
+        const merged = { ...latestNotes[latestIdx], ...patch };
+        for (const field of fieldsToDelete) delete merged[field];
+        latestNotes[latestIdx] = merged;
+        await writeNotes(latestNotes);
+        broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+      }
+    });
     return { ok: true };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
@@ -953,7 +1021,11 @@ async function drainPipelineQueue() {
       pipeline.currentNoteId = null;
       pipeline.currentKind = null;
     }
+  } catch (error) {
+    // 单条失败由 processPipelineItem 内部捕获，这里兜住队列级异常，避免 unhandled rejection 崩溃（B6 修复）
+    console.error('[kanbox] 后台流水线异常:', error?.message || error);
   } finally {
+    pipeline.lastRunErrors = pipeline.errors.length > 0 ? [...pipeline.errors] : [];
     pipeline.running = false;
     pipeline.currentNoteId = null;
     pipeline.currentKind = null;
@@ -968,14 +1040,26 @@ async function drainPipelineQueue() {
 function enqueuePipeline(noteId, kinds, { delayMs = 0 } = {}) {
   if (!Array.isArray(kinds) || kinds.length === 0) return;
   const enqueue = () => {
-    if (pipeline.queue.some((item) => item.noteId === noteId)) return;
-    pipeline.queue.push({ noteId, kinds });
+    const existing = pipeline.queue.find((item) => item.noteId === noteId);
+    if (existing) {
+      // 同一条笔记已排队时合并 kinds，而不是直接丢弃（B13 修复）
+      const before = existing.kinds.length;
+      existing.kinds = [...new Set([...existing.kinds, ...kinds])];
+      pipeline.totalCount += existing.kinds.length - before;
+      broadcastPipelineProgress();
+      return;
+    }
+    pipeline.queue.push({ noteId, kinds: [...new Set(kinds)] });
     pipeline.totalCount += kinds.length;
     broadcastPipelineProgress();
-    void drainPipelineQueue();
+    void drainPipelineQueue().catch((error) => console.error('[kanbox] 流水线 drain 失败:', error?.message || error));
   };
   if (delayMs > 0) {
-    setTimeout(enqueue, delayMs);
+    const timer = setTimeout(() => {
+      pendingPipelineTimers.delete(timer);
+      enqueue();
+    }, delayMs);
+    pendingPipelineTimers.add(timer);
   } else {
     enqueue();
   }
@@ -1002,14 +1086,18 @@ async function sendMediaFile(request, response, pathname) {
 
   const filePath = path.join(mediaDirectory, match[1].toLowerCase(), match[2].toLowerCase());
   try {
-    const body = await readFile(filePath);
+    const fileStats = await stat(filePath);
     applyCorsHeaders(request, response);
     response.writeHead(200, {
       'Content-Type': mediaContentTypes.get(path.extname(filePath)) || 'application/octet-stream',
-      'Content-Length': body.byteLength,
+      'Content-Length': fileStats.size,
       'Cache-Control': 'private, max-age=31536000, immutable',
     });
-    response.end(body);
+    // 流式返回图片，避免把大图整体读入内存（B11 修复）
+    const stream = createReadStream(filePath);
+    stream.on('error', () => response.destroy());
+    request.on('close', () => stream.destroy());
+    stream.pipe(response);
   } catch {
     sendJson(request, response, 404, { ok: false, error: 'Image not found' });
   }
@@ -1055,12 +1143,18 @@ async function sendVideoFile(request, response, pathname) {
         'Content-Length': end - start + 1,
         'Content-Range': `bytes ${start}-${end}/${fileStats.size}`,
       });
-      createReadStream(filePath, { start, end }).pipe(response);
+      const stream = createReadStream(filePath, { start, end });
+      stream.on('error', () => response.destroy());
+      request.on('close', () => stream.destroy());
+      stream.pipe(response);
       return true;
     }
 
     response.writeHead(200, { 'Content-Length': fileStats.size });
-    createReadStream(filePath).pipe(response);
+    const stream = createReadStream(filePath);
+    stream.on('error', () => response.destroy());
+    request.on('close', () => stream.destroy());
+    stream.pipe(response);
   } catch {
     sendJson(request, response, 404, { ok: false, error: 'Video not found' });
   }
@@ -1075,6 +1169,14 @@ const server = createServer(async (request, response) => {
 
   if (!isAllowedOrigin(request.headers.origin)) {
     sendJson(request, response, 403, { ok: false, error: 'Origin not allowed' });
+    return;
+  }
+
+  // DNS rebinding 防御：只接受 loopback 主机的 Host 头（B19 修复）
+  const hostHeader = request.headers.host || '';
+  const hostname = hostHeader.split(':')[0].toLowerCase();
+  if (hostname && hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '[::1]') {
+    sendJson(request, response, 403, { ok: false, error: 'Host not allowed' });
     return;
   }
 
@@ -1097,7 +1199,18 @@ const server = createServer(async (request, response) => {
       });
       response.write('data: {"type":"connected"}\n\n');
       sseClients.add(response);
-      request.on('close', () => sseClients.delete(response));
+      // 定期心跳，防止空闲连接被代理/网关掐断（B15 修复）
+      const heartbeat = setInterval(() => {
+        try {
+          response.write(': ping\n\n');
+        } catch {
+          // 客户端已断开，close 事件会清理
+        }
+      }, 30000);
+      request.on('close', () => {
+        clearInterval(heartbeat);
+        sseClients.delete(response);
+      });
       return;
     }
 
@@ -1133,9 +1246,12 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/setup/open-external') {
       const body = await readRequestBody(request);
       const target = body && typeof body.url === 'string' ? body.url.trim() : '';
-      // Restrict to GitHub to avoid opening arbitrary URLs from the webview.
-      if (!/^https?:\/\/(www\.)?github\.com\//i.test(target)) {
-        throw new Error('仅支持打开 GitHub 链接');
+      // Only http(s) URLs are allowed (blocks javascript:/file:/data: etc. from the
+      // webview). Domains are intentionally open: sourceUrl is data the user already
+      // imported into their own notes.json, and opening happens in the system browser
+      // via `open`, not inside the webview.
+      if (!/^https?:\/\/[^\s]+$/i.test(target)) {
+        throw new Error('仅支持打开 http(s) 链接');
       }
       if (process.platform !== 'darwin') throw new Error('当前仅支持在 macOS 上打开外部链接');
       launchDetached('open', [target]);
@@ -1180,8 +1296,9 @@ const server = createServer(async (request, response) => {
 
     const summaryNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/summary$/i);
     if ((request.method === 'GET' || request.method === 'POST') && summaryNoteMatch) {
+      const noteId = summaryNoteMatch[1].toLowerCase();
       const notes = await readNotes();
-      const noteIndex = notes.findIndex((n) => n.id === summaryNoteMatch[1].toLowerCase());
+      const noteIndex = notes.findIndex((n) => n.id === noteId);
       if (noteIndex < 0) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
@@ -1197,20 +1314,27 @@ const server = createServer(async (request, response) => {
         summary = summarizeNote(note);
         engine = 'local';
       }
-      // 持久化到笔记，关闭窗口后重开无需重新生成
-      const updatedNote = { ...note, aiSummary: summary, aiSummaryEngine: engine };
-      const updatedNotes = [...notes];
-      updatedNotes[noteIndex] = updatedNote;
-      await writeNotes(updatedNotes);
-      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
-      sendJson(request, response, 200, { ok: true, summary, engine, note: updatedNote });
+      // 走队列串行化「重读→合并→写回」，只写入新字段，避免覆盖 AI 生成期间用户的操作（B4 修复）
+      const persisted = await queueMutation(async () => {
+        const latestNotes = await readNotes();
+        const latestIdx = latestNotes.findIndex((n) => n.id === noteId);
+        if (latestIdx < 0) return null;
+        const merged = { ...latestNotes[latestIdx], aiSummary: summary, aiSummaryEngine: engine };
+        latestNotes[latestIdx] = merged;
+        await writeNotes(latestNotes);
+        broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+        return merged;
+      });
+      const returned = persisted || { ...note, aiSummary: summary, aiSummaryEngine: engine };
+      sendJson(request, response, 200, { ok: true, summary, engine, note: returned });
       return;
     }
 
     const expandNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})\/expand$/i);
     if (request.method === 'POST' && expandNoteMatch) {
+      const noteId = expandNoteMatch[1].toLowerCase();
       const notes = await readNotes();
-      const noteIndex = notes.findIndex((n) => n.id === expandNoteMatch[1].toLowerCase());
+      const noteIndex = notes.findIndex((n) => n.id === noteId);
       if (noteIndex < 0) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
@@ -1218,13 +1342,19 @@ const server = createServer(async (request, response) => {
       const note = notes[noteIndex];
       const aiSettings = await loadAiSettings(dataDirectory);
       const expansion = await expandWithAi(aiSettings, note);
-      // 持久化到笔记，关闭窗口后重开无需重新生成
-      const updatedNote = { ...note, aiExpansion: expansion };
-      const updatedNotes = [...notes];
-      updatedNotes[noteIndex] = updatedNote;
-      await writeNotes(updatedNotes);
-      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
-      sendJson(request, response, 200, { ok: true, expansion, note: updatedNote });
+      // 走队列串行化「重读→合并→写回」，只写入新字段，避免覆盖 AI 生成期间用户的操作（B4 修复）
+      const persisted = await queueMutation(async () => {
+        const latestNotes = await readNotes();
+        const latestIdx = latestNotes.findIndex((n) => n.id === noteId);
+        if (latestIdx < 0) return null;
+        const merged = { ...latestNotes[latestIdx], aiExpansion: expansion };
+        latestNotes[latestIdx] = merged;
+        await writeNotes(latestNotes);
+        broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+        return merged;
+      });
+      const returned = persisted || { ...note, aiExpansion: expansion };
+      sendJson(request, response, 200, { ok: true, expansion, note: returned });
       return;
     }
 
@@ -1301,7 +1431,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    const deleteNoteMatch = url.pathname.match(/\/notes\/([0-9a-f]{24})$/i);
+    const deleteNoteMatch = url.pathname.match(/^\/notes\/([0-9a-f]{24})$/i);
     if (request.method === 'DELETE' && deleteNoteMatch) {
       // Block chrome-extension from deleting notes (security)
       const deleteOrigin = request.headers.origin;
@@ -1415,14 +1545,16 @@ const server = createServer(async (request, response) => {
           chunks.push(buf);
         }
         const bodyBuf = Buffer.concat(chunks);
-        const boundaryMatch = contentType.match(/boundary=(.+)/i);
+        const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
         if (!boundaryMatch) throw new Error('Missing multipart boundary');
-        const boundary = boundaryMatch[1];
-        const boundaryBuf = Buffer.from('--' + boundary);
+        // 去掉可能带引号的 boundary（B7 修复）
+        const boundary = (boundaryMatch[1] || boundaryMatch[2] || '').trim();
+        if (!boundary) throw new Error('Missing multipart boundary');
         const bodyStr = bodyBuf.toString('utf8');
         const parts = bodyStr.split('--' + boundary);
         for (const part of parts) {
-          if (part.includes('filename=')) {
+          // filename= 不区分大小写（B12 修复）
+          if (/filename=/i.test(part)) {
             const jsonStart = part.indexOf('\r\n\r\n');
             if (jsonStart >= 0) {
               const jsonStr = part.slice(jsonStart + 4).replace(/\r\n--\s*$/, '').trim();
@@ -1440,7 +1572,11 @@ const server = createServer(async (request, response) => {
 
     sendJson(request, response, 404, { ok: false, error: 'Not found' });
   } catch (error) {
-    sendJson(request, response, 400, {
+    // 根据错误类型返回对应状态码，而非统一 400（B9 修复）：支持 error.statusCode
+    const statusCode = error && Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599
+      ? error.statusCode
+      : 400;
+    sendJson(request, response, statusCode, {
       ok: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     });
