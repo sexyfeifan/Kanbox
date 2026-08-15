@@ -39,16 +39,25 @@ import {
   parseDraggedNoteInput,
   removeStoredNote,
 } from './lib/note-import.mjs';
+import {
+  icloudKanboxPath,
+  isIcloudAvailable,
+  localDefaultDataDirectory,
+  migrateDataIfNeeded,
+  resolveDataDirectory,
+  storageInfo,
+  writeStoragePointer,
+} from './lib/storage-location.mjs';
+import { aiPresets, validateProviderPresets } from './lib/ai-provider-presets.mjs';
 
 const DEFAULT_PORT = 4318;
 const MCP_SERVER_NAME = 'kanbox-notes';
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number.parseInt(process.env.LOCAL_API_PORT || `${DEFAULT_PORT}`, 10);
-const defaultDataDirectory = process.platform === 'darwin'
-  ? path.join(os.homedir(), 'Library', 'Application Support', 'com.kanbox.app')
-  : path.join(os.homedir(), '.kanbox');
-const dataDirectory = process.env.LOCAL_APP_DATA_DIR || defaultDataDirectory;
+// 数据目录按「自定义 → iCloud kanbox（第一搜索来源）→ 本机默认」优先级解析（v0.7.1）。
+// LOCAL_APP_DATA_DIR（main.rs 传的本机默认目录）仅作兜底 hint。
+const dataDirectory = resolveDataDirectory(process.env.LOCAL_APP_DATA_DIR);
 const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
 const legacyNotesFilePath = path.join(legacyDataDirectory, 'notes.json');
@@ -1288,6 +1297,18 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'POST' && url.pathname === '/setup/restart') {
+      if (process.platform !== 'darwin') throw new Error('当前仅支持在 macOS 上自动重启');
+      // 退出并重启 App（osascript 独立于 sidecar，sidecar 被杀不会中断它）。
+      launchDetached('/usr/bin/osascript', [
+        '-e', 'tell application "Kanbox" to quit',
+        '-e', 'delay 1',
+        '-e', 'do shell script "open /Applications/Kanbox.app"',
+      ]);
+      sendJson(request, response, 200, { ok: true, message: '正在重启 Kanbox…' });
+      return;
+    }
+
     if (request.method === 'GET' && await sendMediaFile(request, response, url.pathname)) {
       return;
     }
@@ -1395,6 +1416,11 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/ai/settings') {
       const aiSettings = await loadAiSettings(dataDirectory);
       sendJson(request, response, 200, { ok: true, settings: publicAiSettings(aiSettings) });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/ai/presets') {
+      sendJson(request, response, 200, { ok: true, presets: aiPresets(), valid: validateProviderPresets() });
       return;
     }
 
@@ -1523,6 +1549,45 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    // 存储位置（iCloud / 本机 / 自定义）读取与切换（v0.7.1）
+    if (request.method === 'GET' && url.pathname === '/storage') {
+      sendJson(request, response, 200, { ok: true, ...storageInfo(dataDirectory) });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/storage/location') {
+      const body = await readRequestBody(request);
+      const location = body && typeof body.location === 'string' ? body.location : '';
+      let target;
+      if (location === 'icloud') {
+        if (!isIcloudAvailable()) throw new Error('未检测到 iCloud Drive，无法切换到 iCloud 存储');
+        target = icloudKanboxPath();
+      } else if (location === 'local') {
+        target = localDefaultDataDirectory();
+      } else if (location === 'custom') {
+        const custom = body && typeof body.path === 'string' ? body.path.trim() : '';
+        if (!custom) throw new Error('请提供自定义存储目录路径');
+        target = path.resolve(custom);
+      } else {
+        throw new Error('不支持的存储位置类型');
+      }
+      // 目标目录还没有数据且本机默认目录有数据时，复制过去（保留本机兜底）。
+      const migration = await migrateDataIfNeeded(target);
+      if (location === 'custom') {
+        writeStoragePointer('custom', target);
+      } else {
+        writeStoragePointer(location);
+      }
+      sendJson(request, response, 200, {
+        ok: true,
+        needsRestart: true,
+        migrated: migration.migrated,
+        ...storageInfo(target),
+        message: '存储位置已切换，重启 Kanbox 后生效',
+      });
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/data/integrity') {
       sendJson(request, response, 200, await checkDataIntegrity());
       return;
@@ -1617,8 +1682,34 @@ const server = createServer(async (request, response) => {
   }
 });
 
+/**
+ * 查找占用本端口的残留 kanbox sidecar 进程（异常退出后未回收的旧 local-api）。
+ * 返回 PID，找不到返回 null。只针对 kanbox-node + local-api.mjs 组合，避免误杀其它进程。
+ */
+async function findStaleSidecarPid() {
+  try {
+    const { stdout } = await execFileAsync('lsof', ['-iTCP:' + PORT, '-sTCP:LISTEN', '-t'], { timeout: 3000 });
+    const pids = stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+    for (const pid of pids) {
+      if (String(pid) === String(process.pid)) continue;
+      const { stdout: cmd } = await execFileAsync('ps', ['-p', pid, '-o', 'command='], { timeout: 3000 });
+      if (cmd.includes('kanbox-node') && cmd.includes('local-api.mjs')) {
+        return Number(pid);
+      }
+    }
+  } catch {
+    // lsof/ps 不可用则放弃自愈
+  }
+  return null;
+}
+
 async function startServer() {
   await ensureDataDirectory();
+  // 首次切到 iCloud / 自定义目录时，把本机数据复制过去（保留本机兜底），实现无缝切换与跨电脑复原。
+  const migration = await migrateDataIfNeeded(dataDirectory);
+  if (migration.migrated) {
+    console.log(`[kanbox] 已把本机数据迁移到 ${migration.to}`);
+  }
   const existingNotes = await readNotes();
   const recovered = await recoverCachedNoteCovers(existingNotes, {
     cacheDirectories: coverCacheDirectories,
@@ -1627,7 +1718,33 @@ async function startServer() {
   });
   if (recovered.recoveredCount > 0) await writeNotes(recovered.notes);
 
-  server.on('error', (error) => {
+  const onListening = () => {
+    console.log(`local-api listening on http://127.0.0.1:${PORT}`);
+    console.log(`local data directory: ${dataDirectory}`);
+    if (recovered.recoveredCount > 0) {
+      console.log(`recovered ${recovered.recoveredCount} cached note covers`);
+    }
+    runAutoBackup();
+    // Run auto-backup every 24 hours
+    autoBackupTimer = setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
+  };
+
+  let retried = false;
+  server.on('error', async (error) => {
+    if (error.code === 'EADDRINUSE' && !retried) {
+      const stalePid = await findStaleSidecarPid();
+      if (stalePid) {
+        retried = true;
+        console.error(`[kanbox] 检测到残留 local-api 进程（PID ${stalePid}），结束并重试绑定…`);
+        try {
+          process.kill(stalePid, 'SIGTERM');
+        } catch {
+          // 已退出则忽略
+        }
+        setTimeout(() => server.listen(PORT, '127.0.0.1', onListening), 900);
+        return;
+      }
+    }
     if (error.code === 'EADDRINUSE') {
       console.error(`[kanbox] 端口 ${PORT} 已被占用：可能是上一次 Kanbox 异常退出后残留的 local-api 进程仍在运行。`);
       console.error('[kanbox] 若该进程不健康，请手动结束占用端口的进程（lsof -iTCP:' + PORT + ' -sTCP:LISTEN）后重启 Kanbox。');
@@ -1637,16 +1754,7 @@ async function startServer() {
     process.exit(1);
   });
 
-  server.listen(PORT, '127.0.0.1', () => {
-    console.log(`local-api listening on http://127.0.0.1:${PORT}`);
-    console.log(`local data directory: ${dataDirectory}`);
-    if (recovered.recoveredCount > 0) {
-      console.log(`recovered ${recovered.recoveredCount} cached note covers`);
-    }
-    runAutoBackup();
-    // Run auto-backup every 24 hours
-    autoBackupTimer = setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
-  });
+  server.listen(PORT, '127.0.0.1', onListening);
 }
 
 startServer().catch((error) => {

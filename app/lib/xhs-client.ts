@@ -652,3 +652,45 @@ export function subscribeToUpdates(onUpdate: () => void): () => void {
   };
   return () => eventSource.close();
 }
+
+// ─── 存储位置 ─────────────────────────────────────────────────────────────────
+
+export type StorageLocation = 'icloud' | 'local' | 'custom';
+
+export type StorageInfo = {
+  dataDirectory: string;
+  location: StorageLocation;
+  icloudAvailable: boolean;
+  icloudPath: string | null;
+  localPath: string;
+};
+
+export async function getStorageInfo(): Promise<StorageInfo> {
+  return fetchLocalApi<{ ok: boolean } & StorageInfo>('/storage', undefined, 8000);
+}
+
+export async function setStorageLocation(
+  location: StorageLocation,
+  path?: string,
+): Promise<StorageInfo & { needsRestart: boolean; migrated: boolean; message: string }> {
+  return fetchLocalApi<StorageInfo & { needsRestart: boolean; migrated: boolean; message: string }>(
+    '/storage/location',
+    { method: 'POST', body: JSON.stringify({ location, path }) },
+    60_000,
+  );
+}
+
+export async function restartApp(): Promise<{ ok: boolean; message: string }> {
+  return fetchLocalApi<{ ok: boolean; message: string }>('/setup/restart', { method: 'POST' }, 8000);
+}
+
+// ─── AI 服务商/模型预设 ──────────────────────────────────────────────────────
+
+export type ProviderModelPreset = { id: string; name: string; description: string };
+export type ProviderPreset = { id: string; name: string; endpoint: string; models: ProviderModelPreset[] };
+export type AiPresets = { llm: ProviderPreset[]; transcribe: ProviderPreset[] };
+
+export async function getAiPresets(): Promise<AiPresets> {
+  const data = await fetchLocalApi<{ ok: boolean; presets: AiPresets }>('/ai/presets', undefined, 8000);
+  return data.presets;
+}

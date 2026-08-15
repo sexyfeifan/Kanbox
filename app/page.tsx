@@ -9,6 +9,22 @@ export default function Home() {
   const { dispatch } = useApp();
   const notesSignatureRef = useRef('');
 
+  // 全局错误兜底：让渲染期外的静默失败可见
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('[GlobalError]', event.error ?? event.message);
+    };
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      console.error('[UnhandledRejection]', event.reason);
+    };
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 

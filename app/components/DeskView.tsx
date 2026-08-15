@@ -57,8 +57,12 @@ import {
   batchProcessAi,
   getPipelineStatus,
   subscribeToPipeline,
+  getStorageInfo,
+  setStorageLocation,
+  restartApp,
+  getAiPresets,
 } from '../lib/xhs-client';
-import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus } from '../lib/xhs-client';
+import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset } from '../lib/xhs-client';
 import { renderMarkdown } from '../lib/markdown';
 import {
   acceptsExternalNoteDrag,
@@ -1625,6 +1629,17 @@ export function DeskView() {
   const [aiTranscribeTestResult, setAiTranscribeTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [aiMessage, setAiMessage] = useState('');
 
+  // 存储位置
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageMessage, setStorageMessage] = useState('');
+  const [customStoragePath, setCustomStoragePath] = useState('');
+
+  // AI 服务商预设
+  const [aiPresets, setAiPresets] = useState<AiPresets | null>(null);
+  const [llmProvider, setLlmProvider] = useState<string>('custom');
+  const [transcribeProvider, setTranscribeProvider] = useState<string>('custom');
+
   // AI 后台流水线进度（自动流水线 + 手动补跑共用）
   const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>({
     running: false, status: 'idle', queued: 0, doneCount: 0, totalCount: 0, currentNoteId: null, currentKind: null,
@@ -2229,6 +2244,16 @@ export function DeskView() {
         transcribeModel: settings.transcribeModel,
       });
     } catch {}
+    // 加载存储位置信息
+    try {
+      const storage = await getStorageInfo();
+      setStorageInfo(storage);
+    } catch {}
+    // 加载 AI 服务商预设
+    try {
+      const presets = await getAiPresets();
+      setAiPresets(presets);
+    } catch {}
   };
 
   const handleSaveAiSettings = async () => {
@@ -2287,6 +2312,60 @@ export function DeskView() {
     } finally {
       setAiTranscribeTesting(false);
     }
+  };
+
+  // 存储位置切换
+  const handleStorageSwitch = async (location: StorageLocation, path?: string) => {
+    setStorageLoading(true);
+    setStorageMessage('');
+    try {
+      const result = await setStorageLocation(location, path);
+      setStorageInfo({
+        dataDirectory: result.dataDirectory,
+        location: result.location,
+        icloudAvailable: result.icloudAvailable,
+        icloudPath: result.icloudPath,
+        localPath: result.localPath,
+      });
+      setStorageMessage(result.message || (result.needsRestart ? '已切换，重启后生效' : '已切换'));
+    } catch (error) {
+      setStorageMessage(error instanceof Error ? error.message : '切换失败');
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  const handleRestartApp = async () => {
+    try {
+      await restartApp();
+    } catch {}
+  };
+
+  // 服务商预设选中后填入 endpoint + model
+  const handleSelectLlmProvider = (providerId: string) => {
+    setLlmProvider(providerId);
+    if (providerId === 'custom' || !aiPresets) return;
+    const provider = aiPresets.llm.find((p: ProviderPreset) => p.id === providerId);
+    if (!provider) return;
+    const firstModel = provider.models[0];
+    setAiDraft(d => ({
+      ...d,
+      endpoint: provider.endpoint,
+      model: firstModel?.id ?? '',
+    }));
+  };
+
+  const handleSelectTranscribeProvider = (providerId: string) => {
+    setTranscribeProvider(providerId);
+    if (providerId === 'custom' || !aiPresets) return;
+    const provider = aiPresets.transcribe.find((p: ProviderPreset) => p.id === providerId);
+    if (!provider) return;
+    const firstModel = provider.models[0];
+    setAiDraft(d => ({
+      ...d,
+      transcribeEndpoint: provider.endpoint,
+      transcribeModel: firstModel?.id ?? '',
+    }));
   };
 
   const handleBatchProcess = async () => {
@@ -3701,6 +3780,93 @@ export function DeskView() {
                   )}
                 </div>
 
+                {/* Storage Location */}
+                <div style={{ marginTop: 24 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>存储位置</h3>
+                  {storageInfo ? (
+                    <>
+                      <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(130,153,135,0.06)', marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: '#5E5A54', wordBreak: 'break-all' }}>{storageInfo.dataDirectory}</div>
+                        <div style={{ fontSize: 10, color: '#9A958D', marginTop: 4 }}>
+                          {storageInfo.location === 'icloud' ? '☁️ iCloud 云同步' : storageInfo.location === 'custom' ? '📁 自定义位置' : '💻 本机默认'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button
+                          onClick={() => void handleStorageSwitch('icloud')}
+                          disabled={storageLoading || !storageInfo.icloudAvailable || storageInfo.location === 'icloud'}
+                          style={{
+                            height: 34, borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            border: storageInfo.location === 'icloud' ? '1px solid #829987' : '1px solid rgba(73,56,28,0.07)',
+                            background: storageInfo.location === 'icloud' ? 'rgba(130,153,135,0.12)' : 'rgba(253,252,250,0.78)',
+                            color: storageInfo.location === 'icloud' ? '#829987' : '#666159',
+                            opacity: !storageInfo.icloudAvailable ? 0.4 : 1,
+                          }}
+                        >
+                          {storageInfo.location === 'icloud' ? '✓ 已使用 iCloud' : '迁移到 iCloud（推荐）'}
+                        </button>
+                        <button
+                          onClick={() => void handleStorageSwitch('local')}
+                          disabled={storageLoading || storageInfo.location === 'local'}
+                          style={{
+                            height: 34, borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                            border: storageInfo.location === 'local' ? '1px solid #829987' : '1px solid rgba(73,56,28,0.07)',
+                            background: storageInfo.location === 'local' ? 'rgba(130,153,135,0.12)' : 'rgba(253,252,250,0.78)',
+                            color: storageInfo.location === 'local' ? '#829987' : '#666159',
+                          }}
+                        >
+                          {storageInfo.location === 'local' ? '✓ 使用本机默认位置' : '使用本机默认位置'}
+                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            type="text"
+                            value={customStoragePath}
+                            onChange={(e) => setCustomStoragePath(e.target.value)}
+                            placeholder="/path/to/custom/folder"
+                            style={{
+                              flex: 1, height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                              background: '#F7F5F0', padding: '0 10px', fontSize: 11, color: '#3A3840', boxSizing: 'border-box',
+                            }}
+                          />
+                          <button
+                            onClick={() => { if (customStoragePath.trim()) void handleStorageSwitch('custom', customStoragePath.trim()); }}
+                            disabled={storageLoading || !customStoragePath.trim()}
+                            style={{
+                              height: 34, padding: '0 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                              border: storageInfo.location === 'custom' ? '1px solid #829987' : '1px solid rgba(73,56,28,0.07)',
+                              background: storageInfo.location === 'custom' ? 'rgba(130,153,135,0.12)' : 'rgba(253,252,250,0.78)',
+                              color: '#666159', cursor: 'pointer',
+                            }}
+                          >
+                            应用
+                          </button>
+                        </div>
+                      </div>
+                      {!storageInfo.icloudAvailable && (
+                        <p style={{ margin: '6px 0 0', fontSize: 10, color: '#9A958D' }}>
+                          未检测到 iCloud Drive，macOS 需在系统设置中启用 iCloud Drive。
+                        </p>
+                      )}
+                      {storageMessage && (
+                        <p style={{
+                          margin: '6px 0 0', fontSize: 10.5,
+                          color: storageMessage.includes('失败') ? '#B56A5B' : '#4F6254',
+                        }}>
+                          {storageMessage}
+                          {storageMessage.includes('重启') && (
+                            <button onClick={() => void handleRestartApp()} style={{
+                              marginLeft: 8, padding: '2px 8px', borderRadius: 6, border: 'none',
+                              background: '#829987', color: '#fff', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                            }}>重启 Kanbox</button>
+                          )}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{ fontSize: 11, color: '#9A958D' }}>加载中...</p>
+                  )}
+                </div>
+
                 {/* AI Settings */}
                 <div style={{ marginTop: 24 }}>
                   <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', marginBottom: 12 }}>{t('aiSettings')}</h3>
@@ -3745,6 +3911,45 @@ export function DeskView() {
 
                     {aiDraft.enhanceTranscript && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(94,127,163,0.04)', border: '1px solid rgba(94,127,163,0.12)' }}>
+                        {aiPresets && aiPresets.transcribe.length > 0 && (
+                          <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                            推荐服务商
+                            <select
+                              value={transcribeProvider}
+                              onChange={(e) => handleSelectTranscribeProvider(e.target.value)}
+                              style={{
+                                marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                background: '#F7F5F0', padding: '0 8px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                              }}
+                            >
+                              <option value="custom">自定义</option>
+                              {aiPresets.transcribe.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        {transcribeProvider !== 'custom' && aiPresets && (() => {
+                          const provider = aiPresets.transcribe.find((p: ProviderPreset) => p.id === transcribeProvider);
+                          if (!provider || provider.models.length <= 1) return null;
+                          return (
+                            <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                              推荐模型
+                              <select
+                                value={aiDraft.transcribeModel}
+                                onChange={(e) => setAiDraft(d => ({ ...d, transcribeModel: e.target.value }))}
+                                style={{
+                                  marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                  background: '#F7F5F0', padding: '0 8px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                                }}
+                              >
+                                {provider.models.map(m => (
+                                  <option key={m.id} value={m.id}>{m.name} — {m.description}</option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        })()}
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('transcribeEndpoint')}
                           <input
@@ -3849,6 +4054,45 @@ export function DeskView() {
 
                     {aiDraft.enabled && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {aiPresets && aiPresets.llm.length > 0 && (
+                          <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                            推荐服务商
+                            <select
+                              value={llmProvider}
+                              onChange={(e) => handleSelectLlmProvider(e.target.value)}
+                              style={{
+                                marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                background: '#F7F5F0', padding: '0 8px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                              }}
+                            >
+                              <option value="custom">自定义</option>
+                              {aiPresets.llm.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        {llmProvider !== 'custom' && aiPresets && (() => {
+                          const provider = aiPresets.llm.find((p: ProviderPreset) => p.id === llmProvider);
+                          if (!provider || provider.models.length <= 1) return null;
+                          return (
+                            <label style={{ fontSize: 10.5, color: '#8C8780' }}>
+                              推荐模型
+                              <select
+                                value={aiDraft.model}
+                                onChange={(e) => setAiDraft(d => ({ ...d, model: e.target.value }))}
+                                style={{
+                                  marginTop: 4, width: '100%', height: 34, borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)',
+                                  background: '#F7F5F0', padding: '0 8px', fontSize: 12, color: '#3A3840', boxSizing: 'border-box',
+                                }}
+                              >
+                                {provider.models.map(m => (
+                                  <option key={m.id} value={m.id}>{m.name} — {m.description}</option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        })()}
                         <label style={{ fontSize: 10.5, color: '#8C8780' }}>
                           {t('aiEndpoint')}
                           <input
