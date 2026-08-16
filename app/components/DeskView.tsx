@@ -658,8 +658,9 @@ function ExpandedCard({
                   e.preventDefault();
                   e.stopPropagation();
                   const sourceUrl = note.sourceUrl as string;
+                  if (!/^https?:\/\//i.test(sourceUrl)) return;
                   void openExternalUrl(sourceUrl).catch(() => {
-                    window.location.href = sourceUrl;
+                    window.open(sourceUrl, '_blank', 'noopener,noreferrer');
                   });
                 }}
                 style={{
@@ -1695,6 +1696,8 @@ function SetupDialog({
 // ── Main view ─────────────────────────────────────────────────────────────────
 export function DeskView() {
   const { notes, setNotes } = useNotes();
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
   const { state, dispatch } = useApp();
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -2145,7 +2148,7 @@ export function DeskView() {
     }
   };
 
-  const handleCreateGroup = () => {
+  const handleCreateGroup = useCallback(() => {
     setDeskState((prev) => {
       const next = createDeskGroup(prev, '新分组') as DeskState;
       const created = next.groups.find((group) => !prev.groups?.some((current) => current.id === group.id) && group.kind === 'custom');
@@ -2156,7 +2159,7 @@ export function DeskView() {
       }
       return next;
     });
-  };
+  }, []);
 
   const handleStartRename = (groupId: string, currentName: string) => {
     setEditingGroupId(groupId);
@@ -2345,7 +2348,7 @@ export function DeskView() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     try {
       await exportNotes();
       setImportFeedback({
@@ -2359,7 +2362,7 @@ export function DeskView() {
       setImportFeedback({ phase: 'error', title: '导出失败', message });
       dismissImportFeedback('error', 3200);
     }
-  };
+  }, []);
 
   const handleExportMarkdown = async () => {
     try {
@@ -2393,14 +2396,17 @@ export function DeskView() {
     }
   };
 
-  const handleOpenSettings = async () => {
+  const handleOpenSettings = useCallback(async () => {
     setShowSettings(true);
-    try {
-      const info = await getDataInfo();
-      setDataInfo(info);
-    } catch {}
-    try {
-      const settings = await getAiSettings();
+    const [infoResult, settingsResult, storageResult, presetsResult] = await Promise.allSettled([
+      getDataInfo(),
+      getAiSettings(),
+      getStorageInfo(),
+      getAiPresets(),
+    ]);
+    if (infoResult.status === 'fulfilled') setDataInfo(infoResult.value);
+    if (settingsResult.status === 'fulfilled') {
+      const settings = settingsResult.value;
       setAiSettings(settings);
       setAiDraft({
         enabled: settings.enabled,
@@ -2414,18 +2420,10 @@ export function DeskView() {
         transcribeApiKey: settings.transcribeApiKey,
         transcribeModel: settings.transcribeModel,
       });
-    } catch {}
-    // 加载存储位置信息
-    try {
-      const storage = await getStorageInfo();
-      setStorageInfo(storage);
-    } catch {}
-    // 加载 AI 服务商预设
-    try {
-      const presets = await getAiPresets();
-      setAiPresets(presets);
-    } catch {}
-  };
+    }
+    if (storageResult.status === 'fulfilled') setStorageInfo(storageResult.value);
+    if (presetsResult.status === 'fulfilled') setAiPresets(presetsResult.value);
+  }, []);
 
   const handleSaveAiSettings = async () => {
     setAiSaving(true);
@@ -3633,7 +3631,7 @@ export function DeskView() {
             onTranscribe={() => handleTranscribeNote(expanded.id)}
             onNoteChanged={(updatedNote) => {
               setExpanded(updatedNote);
-              setNotes(notes.map((n) => (n.id === updatedNote.id ? updatedNote : n)));
+              setNotes(notesRef.current.map((n) => (n.id === updatedNote.id ? updatedNote : n)));
             }}
             isDeleting={deletingNoteId === expanded.id}
           />

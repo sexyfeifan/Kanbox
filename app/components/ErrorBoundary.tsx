@@ -19,6 +19,10 @@ export class ErrorBoundary extends React.Component<Props, State> {
     console.error('[ErrorBoundary] 渲染异常:', error, errorInfo);
   }
 
+  private handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -52,22 +56,40 @@ export class ErrorBoundary extends React.Component<Props, State> {
             }}>
               {this.state.error?.message || '发生了未知错误'}
             </p>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                height: 40,
-                padding: '0 24px',
-                borderRadius: 10,
-                border: 'none',
-                background: '#829987',
-                color: '#fff',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              重新加载
-            </button>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={this.handleReset}
+                style={{
+                  height: 40,
+                  padding: '0 24px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(0,0,0,0.12)',
+                  background: '#fff',
+                  color: '#3A3840',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                重试
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  height: 40,
+                  padding: '0 24px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: '#829987',
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                重新加载
+              </button>
+            </div>
           </div>
         </div>
       );

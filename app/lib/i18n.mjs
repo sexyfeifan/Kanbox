@@ -1,4 +1,4 @@
-﻿const LANGUAGES = {
+const LANGUAGES = {
   'zh-CN': {
     appName: 'Kanbox',
     subtitle: (count) => `${count} 条笔记`,
@@ -393,23 +393,29 @@
   },
 };
 
-let currentLang = typeof window !== 'undefined'
-  ? (localStorage.getItem('kanbox:lang') || navigator.language || 'zh-CN')
-  : 'zh-CN';
+let currentLang = 'zh-CN';
+let _langReady = false;
 
-if (!LANGUAGES[currentLang]) {
-  if (currentLang.startsWith('en')) currentLang = 'en';
-  else if (currentLang.startsWith('ja')) currentLang = 'ja';
-  else if (currentLang.startsWith('zh-TW') || currentLang.startsWith('zh-Hant')) currentLang = 'zh-TW';
-  else currentLang = 'zh-CN';
+function _initLang() {
+  if (_langReady) return;
+  _langReady = true;
+  if (typeof window === 'undefined') return;
+  const saved = localStorage.getItem('kanbox:lang');
+  if (saved && LANGUAGES[saved]) { currentLang = saved; return; }
+  const nav = navigator.language || '';
+  if (nav.startsWith('en')) currentLang = 'en';
+  else if (nav.startsWith('ja')) currentLang = 'ja';
+  else if (nav.startsWith('zh-TW') || nav.startsWith('zh-Hant')) currentLang = 'zh-TW';
 }
 
 export function t(key) {
+  _initLang();
   const dict = LANGUAGES[currentLang] || LANGUAGES['zh-CN'];
   return dict[key] || LANGUAGES['zh-CN'][key] || key;
 }
 
 export function setLanguage(lang) {
+  _langReady = true;
   if (LANGUAGES[lang]) {
     currentLang = lang;
     if (typeof window !== 'undefined') {

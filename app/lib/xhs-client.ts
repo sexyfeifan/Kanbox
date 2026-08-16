@@ -492,7 +492,8 @@ export async function repairNote(noteId: string): Promise<{ notes: Note[]; note:
     body: JSON.stringify({ noteId }),
   }, 60000);
   const response = normalizeRemoteNotes(payload);
-  const note = response.notes.find(n => n.id === noteId)!;
+  const note = response.notes.find(n => n.id === noteId);
+  if (!note) throw new Error('修复结果不完整：笔记未找到');
   return { notes: response.notes, note };
 }
 
@@ -519,16 +520,17 @@ export async function deleteTag(name: string): Promise<{ notes: Note[]; deletedC
   return { notes: response.notes, deletedCount: payload.deletedCount };
 }
 
-export async function getNoteSummary(noteId: string): Promise<{ summary: string; note: Note }> {
+export async function getNoteSummary(noteId: string): Promise<{ summary: string; note?: Note }> {
   const data = await fetchLocalApi<{ ok: boolean; summary: string; engine?: 'ai' | 'local'; note?: RawNote }>(
     `/notes/${noteId}/summary`,
     { method: 'POST' },
     90_000,
   );
-  return { summary: data.summary || '', note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note };
+  const normalizedNote = data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined;
+  return { summary: data.summary || '', note: normalizedNote };
 }
 
-export async function getNoteExpansion(noteId: string): Promise<{ expansion: string; note: Note; needsTranscript?: boolean }> {
+export async function getNoteExpansion(noteId: string): Promise<{ expansion: string; note?: Note; needsTranscript?: boolean }> {
   const data = await fetchLocalApi<{ ok: boolean; expansion: string; note?: RawNote; needsTranscript?: boolean }>(
     `/notes/${noteId}/expand`,
     { method: 'POST' },
@@ -536,7 +538,7 @@ export async function getNoteExpansion(noteId: string): Promise<{ expansion: str
   );
   return {
     expansion: data.expansion || '',
-    note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined as unknown as Note,
+    note: data.note ? normalizeNote(data.note as unknown as Partial<Note>) : undefined,
     needsTranscript: data.needsTranscript === true,
   };
 }
@@ -655,7 +657,7 @@ export function formatNumber(num: number): string {
 export function formatDate(date: Date): string {
   const now = new Date();
   const diff = now.getTime() - date.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const days = Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
   if (days === 0) return '今天';
   if (days === 1) return '昨天';
   if (days < 7) return `${days}天前`;
