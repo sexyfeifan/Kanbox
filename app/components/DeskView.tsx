@@ -144,6 +144,7 @@ const CAT_COLORS: Record<string, string> = {
   健身运动: '#6FA08A', 健康养生: '#A88B6E', 家居生活: '#8C7E9E',
   母婴育儿: '#C89A8B', 宠物:     '#A6A15E', 汽车:     '#6E7E99',
   职场:     '#8B6E7A', 理财投资: '#6E9E7A', 游戏:     '#7A8BB0',
+  影视娱乐: '#8B7AA3', 情感治愈: '#C08B8B',
   其他:     '#9A958E',
 };
 const catColor = (c: string) => CAT_COLORS[c] ?? '#829987';

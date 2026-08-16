@@ -243,3 +243,23 @@ test('classifies gaming notes as 游戏 (not 影像创作)', () => {
   });
   assert.equal(category, '游戏');
 });
+
+test('classifies movie/drama notes as 影视娱乐', () => {
+  const category = inferCategoryFromNote({
+    title: '这个月值得追的韩剧片单',
+    content: '剧情、演员阵容',
+    rawContent: '',
+    tags: ['追剧', '韩剧'],
+  });
+  assert.equal(category, '影视娱乐');
+});
+
+test('classifies healing/emotion notes as 情感治愈', () => {
+  const category = inferCategoryFromNote({
+    title: '套上怪兽的外壳，守护内心的小孩',
+    content: '拥抱内在的小孩，成人的世界也需要童话',
+    rawContent: '',
+    tags: ['童话', '治愈'],
+  });
+  assert.equal(category, '情感治愈');
+});
