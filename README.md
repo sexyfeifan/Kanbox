@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.7.8-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.7.9-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,12 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.7.9 更新
+
+- **后端安全与稳定性修复** — 重复导入不再整条覆盖（手动分类/标签/AI 摘要与拓展全部保留）；浏览器扩展 origin 白名单收窄为固定扩展 ID，不再信任任意 `chrome-extension://` 扩展读取笔记与明文密钥；手动转写移出写队列，长视频转写期间不再阻塞编辑/导入；自定义存储目录不可写时回退本机（不再「本地服务未连接」）；标签重命名/删除实时广播
+- **数据保真度与一致性** — 匿名解析透传点赞/收藏/评论数；导出 HTML 校验链接协议（阻断 `javascript:` 注入）；导出 Markdown 标题/作者/标签单行化；手动与自动备份 schema 版本统一；恢复体积上限统一 10MB；删除死代码、统一唯一临时文件名
+- **浏览器插件更新** — 插件版本对齐应用 v0.7.9；manifest 加 `key` 字段固定扩展 ID；popup 支持多平台（小红书/B站/微博/抖音/知乎/快手/头条）识别；「打开 Kanbox」改为真正打开桌面 App
 
 ## 🆕 v0.7.8 更新
 
