@@ -3303,7 +3303,9 @@ export function DeskView() {
                   onDrop={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    handleMoveNoteToGroup(draggedNoteId, groupId);
+                    if (draggedNoteId) {
+                      handleMoveNoteToGroup(draggedNoteId, groupId);
+                    }
                     setDraggedNoteId(null);
                   }}
                   style={{
