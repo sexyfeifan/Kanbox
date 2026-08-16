@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.7.9-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.0-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.0 更新
+
+- **前端稳定性与可靠性修复** — 笔记变更回调改用最新快照（不再用过期闭包覆盖新数据）；拖拽分组区补空值防护，杜绝 null 传播崩溃；AI 摘要/拓展返回类型如实声明（`note?: Note`），消除接口调用空引用风险；`repairNote` 改显式判空
+- **安全加固** — 打开外部链接前校验 scheme（仅放行 http/https，阻断 `javascript:`/`file:` 注入）
+- **性能优化** — 设置面板四项异步请求改 `Promise.allSettled` 并行；键盘快捷键相关回调用 `useCallback` 稳定引用，避免监听器反复重建
+- **国际化修复** — 去除 i18n 文件 UTF-8 BOM；语言检测延迟到首次翻译调用，消除 SSR hydration 不匹配；日期显示负数天数兜底为「今天」
+- **错误边界增强** — 出错页新增「重试」按钮（保留应用状态），与「重新加载」并存
+- **版本号对齐** — 应用与浏览器插件统一升至 v0.8.0
 
 ## 🆕 v0.7.9 更新
 
