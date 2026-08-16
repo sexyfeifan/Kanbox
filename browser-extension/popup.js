@@ -41,8 +41,47 @@ async function getCurrentPlatform() {
 async function getCurrentTabNoteId() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return null;
-  const match = tab.url.match(/xiaohongshu\.com\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
-  return match?.[1] || null;
+  try {
+    const url = new URL(tab.url);
+    const host = url.hostname;
+    const path = url.pathname;
+    // 小红书
+    if (host.includes('xiaohongshu.com')) {
+      const m = path.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
+      return m?.[1] || null;
+    }
+    // B站
+    if (host.includes('bilibili.com')) {
+      const m = path.match(/^\/(?:video|read|opus)\/(?:av|BV|cv)?([a-zA-Z0-9]+)/i);
+      return m?.[1] ? `bili_${m[1]}` : null;
+    }
+    // 微博
+    if (host.includes('weibo.com') || host.includes('weibo.cn')) {
+      const m = path.match(/^\/\d+\/([a-zA-Z0-9]+)/i) || path.match(/^\/detail\/([a-zA-Z0-9]+)/i);
+      return m?.[1] ? `weibo_${m[1]}` : null;
+    }
+    // 抖音
+    if (host.includes('douyin.com')) {
+      const m = path.match(/\/video\/(\d+)/i) || path.match(/\/note\/(\d+)/i);
+      return m?.[1] ? `dy_${m[1]}` : null;
+    }
+    // 知乎
+    if (host.includes('zhihu.com')) {
+      const m = path.match(/\/(?:p|answer)\/(\d+)/i);
+      return m?.[1] ? `zhihu_${m[1]}` : null;
+    }
+    // 快手
+    if (host.includes('kuaishou.com') || host.includes('gifshow.com')) {
+      const m = path.match(/\/short-video\/([a-zA-Z0-9]+)/i) || path.match(/\/photo\/([a-zA-Z0-9]+)/i);
+      return m?.[1] ? `ks_${m[1]}` : null;
+    }
+    // 头条
+    if (host.includes('toutiao.com')) {
+      const m = path.match(/\/article\/(\d+)/i) || path.match(/\/video\/(\d+)/i);
+      return m?.[1] ? `tt_${m[1]}` : null;
+    }
+  } catch {}
+  return null;
 }
 
 async function saveCurrentNote() {
@@ -173,7 +212,9 @@ async function loadStats() {
 // Event listeners
 document.getElementById('saveCurrentBtn').addEventListener('click', saveCurrentNote);
 document.getElementById('openAppBtn').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'http://localhost:3000' });
+  // 通过本地服务打开（或聚焦）桌面 App，而不是打开已失效的 localhost:3000 开发地址。
+  fetch('http://127.0.0.1:4318/setup/open-app', { method: 'POST' }).catch(() => {});
+  window.close();
 });
 
 // Initialize

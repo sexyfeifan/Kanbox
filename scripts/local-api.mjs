@@ -249,9 +249,22 @@ const mediaContentTypes = new Map([
   ['.webp', 'image/webp'],
 ]);
 
+// Kanbox 浏览器扩展的固定 ID（由 manifest.json 的 key 字段派生，Chrome 下稳定）。
+// 只放行这一个扩展，而不是信任整个 chrome-extension:// scheme——否则任何已安装的
+// Chrome 扩展都能以自身 origin 读走全部笔记和明文 API Key（P1#2）。
+const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
+
+// 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
+// 随应用版本号一起 bump（P2#11）。
+const BACKUP_VERSION = '0.7.9';
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
-  if (origin.startsWith('chrome-extension://')) return true;
+  // P1#2 安全加固：只放行 Kanbox 扩展的固定 ID。manifest.json 已加 `key` 字段，
+  // 因此开发（unpacked）和正式发布（.crx）的扩展 ID 都是同一个稳定值
+  // KANBOX_EXTENSION_ID，不存在「开发/生产 ID 不同」的问题——不用信任整个
+  // chrome-extension:// scheme，否则任何已安装扩展都能读走笔记和明文密钥。
+  if (origin === `chrome-extension://${KANBOX_EXTENSION_ID}`) return true;
 
   try {
     const url = new URL(origin);
@@ -361,7 +374,8 @@ async function writeNotes(notes) {
 }
 
 async function writeLegacyNotes(notes) {
-  const legacyTempFilePath = path.join(legacyDataDirectory, 'notes.next.json');
+  // 与 writeNotes 一致使用唯一临时文件名，避免共享临时名在并发下交错/损坏（P2#6）。
+  const legacyTempFilePath = path.join(legacyDataDirectory, `notes.${process.pid}.${++writeNotesSeq}.next.json`);
   await mkdir(legacyDataDirectory, { recursive: true });
   await writeFile(legacyTempFilePath, `${JSON.stringify(notes, null, 2)}\n`, 'utf8');
   await rename(legacyTempFilePath, legacyNotesFilePath);
@@ -382,6 +396,9 @@ async function getAllTags() {
 }
 
 async function renameTag(oldName, newName) {
+  const cleanedNewName = typeof newName === 'string' ? newName.trim() : '';
+  // 空标签名会经 .filter(Boolean) 变成「静默删除该标签」，必须显式拒绝（P1#5）。
+  if (!cleanedNewName) throw new Error('标签名不能为空');
   const notes = await readNotes();
   let renamedCount = 0;
   const updated = notes.map(note => {
@@ -389,10 +406,11 @@ async function renameTag(oldName, newName) {
     renamedCount++;
     return {
       ...note,
-      tags: [...new Set(note.tags.map(t => t === oldName ? newName : t).filter(Boolean))],
+      tags: [...new Set(note.tags.map(t => t === oldName ? cleanedNewName : t).filter(Boolean))],
     };
   });
   await writeNotes(updated);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return { notes: updated, renamedCount };
 }
 
@@ -408,17 +426,18 @@ async function deleteTag(tagName) {
     };
   });
   await writeNotes(updated);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return { notes: updated, deletedCount };
 }
 
-async function readRequestBody(request) {
+async function readRequestBody(request, maxBytes = 2 * 1024 * 1024) {
   const chunks = [];
   let totalBytes = 0;
 
   for await (const chunk of request) {
     const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
     totalBytes += buffer.length;
-    if (totalBytes > 2 * 1024 * 1024) {
+    if (totalBytes > maxBytes) {
       throw new Error('导入内容过大');
     }
     chunks.push(buffer);
@@ -439,30 +458,6 @@ function getLastImportedAt(notes) {
   if (timestamps.length === 0) return null;
   // 用 reduce 而非 Math.max(...spread)，避免大数组导致调用栈溢出（B16 修复）
   return new Date(timestamps.reduce((a, b) => Math.max(a, b), -Infinity)).toISOString();
-}
-
-async function getDirectorySize(dirPath) {
-  if (!existsSync(dirPath)) return 0;
-  let totalSize = 0;
-  try {
-    const entries = await readdir(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      const entryPath = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        totalSize += await getDirectorySize(entryPath);
-      } else if (entry.isFile()) {
-        try {
-          const fileStat = await stat(entryPath);
-          totalSize += fileStat.size;
-        } catch {
-          // Skip files that can't be stat'd
-        }
-      }
-    }
-  } catch {
-    // Return 0 if directory can't be read
-  }
-  return totalSize;
 }
 
 async function checkDataIntegrity() {
@@ -509,7 +504,7 @@ async function repairNoteIntegrity(noteId) {
   const repaired = await localizeNoteMedia(note, {
     mediaDirectory,
     publicBaseUrl,
-  });
+  }) || note; // P0#4 修复：localizeNoteMedia 异常时降级到原笔记，避免 null 崩溃
 
   const updatedNotes = [...notes];
   updatedNotes[noteIndex] = repaired;
@@ -532,17 +527,22 @@ async function buildNotesExport() {
   };
 }
 
+// 把可能含换行的字段压成单行，避免破坏 Markdown 的 `## 标题` / 列表结构（P2#12）。
+function singleLine(value) {
+  return String(value ?? '').replace(/\s*\n+\s*/g, ' ').trim();
+}
+
 async function exportNotesMarkdown() {
   const notes = await readNotes();
   let md = `# Kanbox 笔记导出\n\n导出时间: ${new Date().toISOString()}\n笔记总数: ${notes.length}\n\n---\n\n`;
 
   for (const note of notes) {
-    md += `## ${note.title || '未命名笔记'}\n\n`;
-    md += `- 作者: ${note.author?.name || '未知'}\n`;
-    md += `- 分类: ${note.category || '未分类'}\n`;
+    md += `## ${singleLine(note.title || '未命名笔记')}\n\n`;
+    md += `- 作者: ${singleLine(note.author?.name || '未知')}\n`;
+    md += `- 分类: ${singleLine(note.category || '未分类')}\n`;
     md += `- 保存时间: ${note.savedAt || ''}\n`;
-    md += `- 来源: ${note.sourceUrl || ''}\n`;
-    if (note.tags?.length) md += `- 标签: ${note.tags.join(', ')}\n`;
+    md += `- 来源: ${singleLine(note.sourceUrl || '')}\n`;
+    if (note.tags?.length) md += `- 标签: ${note.tags.map(singleLine).join(', ')}\n`;
     md += `\n`;
     if (note.rawContent || note.content) md += `${note.rawContent || note.content}\n\n`;
     if (note.ocrText) md += `### 图片文字\n${note.ocrText}\n\n`;
@@ -572,7 +572,7 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
   for (const note of notes) {
     html += `<div class="note"><h2>${escapeHtml(note.title || '未命名笔记')}</h2>`;
     html += `<div class="meta">作者: ${escapeHtml(note.author?.name || '未知')} | 分类: ${escapeHtml(note.category || '未分类')} | ${escapeHtml(note.savedAt || '')}</div>`;
-    if (note.sourceUrl) html += `<p><a href="${escapeHtml(note.sourceUrl)}" target="_blank">查看原帖</a></p>`;
+    if (note.sourceUrl && /^https?:\/\//i.test(note.sourceUrl)) html += `<p><a href="${escapeHtml(note.sourceUrl)}" target="_blank">查看原帖</a></p>`;
     if (note.tags?.length) html += `<tags>${note.tags.map(t => `<span>#${escapeHtml(t)}</span>`).join('')}</tags>`;
     if (note.rawContent || note.content) html += `<p>${escapeHtml(note.rawContent || note.content).replace(/\n/g, '<br>')}</p>`;
     if (note.ocrText) html += `<h3>图片文字</h3><p>${escapeHtml(note.ocrText).replace(/\n/g, '<br>')}</p>`;
@@ -590,7 +590,7 @@ async function createBackup() {
   await mkdir(backupDir, { recursive: true });
   const backupPath = path.join(backupDir, `backup-${timestamp}.json`);
   await writeFile(backupPath, JSON.stringify({
-    version: '0.0.3',
+    version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     notes
   }, null, 2), 'utf8');
@@ -653,7 +653,7 @@ async function runAutoBackup() {
     if (existsSync(backupPath)) return;
 
     await writeFile(backupPath, JSON.stringify({
-      version: '0.2.0',
+      version: BACKUP_VERSION,
       type: 'auto',
       exportedAt: now.toISOString(),
       notes,
@@ -903,25 +903,43 @@ function buildTranscriptOptions(aiSettings, { defer = false } = {}) {
 }
 
 async function reanalyzeNoteVideo(noteId) {
+  // P1#1 修复：AI 转写可能耗时 5-15 分钟，必须在 mutationQueue 外执行，避免阻塞全部写操作。
+  // 只有最后的「重读→合并→写回」才入队。
   const notes = await readNotes();
   const noteIndex = notes.findIndex((note) => note.id === noteId);
   if (noteIndex < 0) return null;
 
   const aiSettings = await loadAiSettings(dataDirectory);
+  // 重活：下载视频 + AI 转写（可能数分钟），在队列外执行
   const updatedNote = await reanalyzeStoredNoteVideo(notes[noteIndex], buildTranscriptOptions(aiSettings));
-  const updatedNotes = [...notes];
-  updatedNotes[noteIndex] = updatedNote;
-  await writeNotes(updatedNotes);
-  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
-  return {
-    notes: updatedNotes,
-    note: updatedNote,
-    lastImportedAt: getLastImportedAt(updatedNotes),
-  };
+
+  // 轻活：串行化写回，避免与其它编辑产生 lost update
+  return queueMutation(async () => {
+    const latestNotes = await readNotes();
+    const latestIdx = latestNotes.findIndex((note) => note.id === noteId);
+    if (latestIdx < 0) return null;
+    // 只合并转写相关字段，不覆盖用户在转写期间的编辑
+    const patch = {};
+    for (const field of ['videoUrl', 'videoDuration', 'transcriptText', 'transcriptSegments', 'transcriptEngine', 'videoStatus', 'videoError']) {
+      if (updatedNote[field] !== undefined) patch[field] = updatedNote[field];
+    }
+    const merged = { ...latestNotes[latestIdx], ...patch };
+    delete merged.transcriptSkipped;
+    delete merged.transcriptStatus;
+    const updatedNotes = [...latestNotes];
+    updatedNotes[latestIdx] = merged;
+    await writeNotes(updatedNotes);
+    broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+    return {
+      notes: updatedNotes,
+      note: merged,
+      lastImportedAt: getLastImportedAt(updatedNotes),
+    };
+  });
 }
 
 function queueVideoReanalysis(noteId) {
-  return queueMutation(() => reanalyzeNoteVideo(noteId));
+  return reanalyzeNoteVideo(noteId);
 }
 
 // ===== 后台 AI 流水线：素材收录后 5 秒自动执行「转写 → 摘要 → 知识拓展」，并支持手动全局补跑 =====
@@ -1295,6 +1313,14 @@ const server = createServer(async (request, response) => {
       if (process.platform !== 'darwin') throw new Error('当前仅支持在 macOS 上打开外部链接');
       launchDetached('open', [target]);
       sendJson(request, response, 200, { ok: true, url: target });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/setup/open-app') {
+      if (process.platform !== 'darwin') throw new Error('当前仅支持在 macOS 上打开 Kanbox');
+      // 打开（或聚焦）桌面 App。`open -a` 会按 bundle id 查找，比硬编码 /Applications 路径更稳。
+      launchDetached('open', ['-a', 'Kanbox']);
+      sendJson(request, response, 200, { ok: true, message: '正在打开 Kanbox…' });
       return;
     }
 
@@ -1690,7 +1716,8 @@ const server = createServer(async (request, response) => {
           }
         }
       } else {
-        parsedBody = await readRequestBody(request);
+        // JSON 恢复路径与 multipart 路径统一 10MB 上限，避免 >2MB 的全量备份被误判「过大」（P2#7）。
+        parsedBody = await readRequestBody(request, 10 * 1024 * 1024);
       }
       const result = await queueMutation(() => restoreFromBackup(parsedBody));
       sendJson(request, response, 200, result);

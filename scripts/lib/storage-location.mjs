@@ -110,7 +110,17 @@ export function classifyLocation(dir) {
 export function resolveDataDirectory(hint) {
   const pointer = readStoragePointer();
   if (pointer) {
-    if (pointer.location === 'custom' && pointer.path) return pointer.path;
+    if (pointer.location === 'custom' && pointer.path) {
+      const p = pointer.path;
+      // 自定义路径同样做可写探测：不可写/无法创建时回退本机默认，而不是让 sidecar
+      // 启动时 mkdir 抛错 → 「本地服务未连接」且无从恢复（P1#4）。
+      try {
+        mkdirSync(p, { recursive: true });
+      } catch {
+        return localDefaultDataDirectory();
+      }
+      return isWritableDir(p) ? p : localDefaultDataDirectory();
+    }
     if (pointer.location === 'local') return localDefaultDataDirectory();
     if (pointer.location === 'icloud') {
       if (isIcloudAvailable()) {

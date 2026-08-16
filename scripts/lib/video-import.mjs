@@ -99,7 +99,14 @@ export async function runNativeVideoAnalyzer(videoPath, analyzerPath = findNativ
     timeout: 20 * 60_000,
     maxBuffer: 16 * 1024 * 1024,
   });
-  const result = JSON.parse(stdout);
+  let result;
+  try {
+    result = JSON.parse(stdout);
+  } catch {
+    // 分析器可能在 stdout 前面打印非 JSON 的告警/日志，JSON.parse 会抛晦涩的
+    // "Unexpected token"；这里给出可读的错误，与 extractVideoAudio 的 try/catch 对齐（P2#8）。
+    throw new Error('本地视频分析没有返回有效结果');
+  }
   if (!result || typeof result !== 'object') throw new Error('本地视频分析没有返回结果');
   return result;
 }

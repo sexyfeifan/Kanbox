@@ -84,6 +84,45 @@ test('mergeImportedNote replaces duplicates', () => {
   assert.equal(updated.notes[0].title, 'updated');
 });
 
+test('mergeImportedNote preserves manual curation on re-import (P1#1)', () => {
+  const existing = {
+    id: 'note1',
+    title: '旧标题',
+    category: '编程开发',   // 用户手动拖拽确定过的分类
+    tags: ['手动标签'],
+    aiSummary: '已生成的摘要',
+    aiExpansion: '已生成的拓展',
+    savedAt: '2026-01-01T00:00:00.000Z',
+  };
+  // 重新导入「刷新内容」：只更新内容性字段，category/tags/AI/savedAt 都要保留
+  const reimported = {
+    id: 'note1',
+    title: '新标题',
+    category: '其他',       // 机器新推断出的过渡态
+    tags: [],
+    savedAt: '2026-08-17T00:00:00.000Z',
+  };
+  const result = mergeImportedNote([existing], reimported);
+  assert.equal(result.created, false);
+  const merged = result.notes[0];
+  assert.equal(merged.title, '新标题');                    // 内容性字段被刷新
+  assert.equal(merged.category, '编程开发');               // 手动分类不被机器过渡值顶掉
+  assert.deepEqual(merged.tags, ['手动标签']);             // 新 tags 为空时保留旧的
+  assert.equal(merged.aiSummary, '已生成的摘要');          // AI 摘要保留
+  assert.equal(merged.aiExpansion, '已生成的拓展');        // AI 拓展保留
+  assert.equal(merged.savedAt, '2026-01-01T00:00:00.000Z'); // 首次收录时间不顶到最前
+});
+
+test('mergeImportedNote re-infers category when old value is transient', () => {
+  // 旧分类是「待分类」这种机器过渡态时，应让新推断结果接管
+  const result = mergeImportedNote(
+    [{ id: 'note1', category: '待分类', tags: ['a'] }],
+    { id: 'note1', category: '旅行户外', tags: [] },
+  );
+  assert.equal(result.notes[0].category, '旅行户外');
+  assert.deepEqual(result.notes[0].tags, ['a']);
+});
+
 test('removeStoredNote removes only the requested note', () => {
   const first = { id: 'first', title: 'first' };
   const second = { id: 'second', title: 'second' };

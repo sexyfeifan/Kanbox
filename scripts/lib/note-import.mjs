@@ -122,6 +122,12 @@ function cleanText(value, maxLength = 20000) {
     : '';
 }
 
+// 取第一个非负整数（点赞/收藏/评论数），拿不到或非法返回 0。
+function nonNegativeInt(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
 function normalizeImageUrls(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -193,9 +199,9 @@ export function normalizeImportedNote(payload) {
       avatar: cleanText(payload.author?.avatar, 3000),
       userId: cleanText(payload.author?.userId, 200),
     },
-    likes: 0,
-    collects: 0,
-    comments: 0,
+    likes: nonNegativeInt(payload.likes),
+    collects: nonNegativeInt(payload.collects),
+    comments: nonNegativeInt(payload.comments),
     category: '待分类',
     savedAt: new Date().toISOString(),
     tags: Array.isArray(payload.tags)
@@ -229,13 +235,41 @@ export function noteFromSharedText(input) {
   });
 }
 
+// 机器推断的过渡态分类：重导入「刷新内容」时应让新推断结果接管，而不是沿用旧过渡值。
+// 其余分类视为「已确定」（可能是用户手动拖拽改的），重导入时保留，避免手动策展被顶掉（P1#1）。
+const REINFER_CATEGORY_VALUES = new Set(['待分类', '其他', '']);
+
 export function mergeImportedNote(existingNotes, importedNote) {
   const safeExistingNotes = Array.isArray(existingNotes) ? existingNotes : [];
-  const created = !safeExistingNotes.some((note) => note?.id === importedNote?.id);
-  return {
-    created,
-    notes: [importedNote, ...safeExistingNotes.filter((note) => note?.id !== importedNote?.id)],
+  const existingIndex = safeExistingNotes.findIndex((note) => note?.id === importedNote?.id);
+  const created = existingIndex < 0;
+  if (created) {
+    return { created, notes: [importedNote, ...safeExistingNotes] };
+  }
+
+  const existing = safeExistingNotes[existingIndex];
+  // 重导入只覆盖内容性字段，保留用户手动策展：
+  // - 分类：旧值非机器过渡态（待分类/其他/空）时保留，否则用新推断；
+  // - 标签：新数据为空时保留旧的（避免解析失败把用户标签清空）；
+  // - AI 摘要/拓展：保留已生成的（虽会被后台流水线自愈，但手动触发的也不应丢）；
+  // - savedAt：保留首次收录时间，重导入不应把笔记顶到列表最前。
+  const merged = {
+    ...importedNote,
+    category: REINFER_CATEGORY_VALUES.has(existing?.category)
+      ? importedNote.category
+      : (existing?.category ?? importedNote.category),
+    tags: Array.isArray(importedNote.tags) && importedNote.tags.length > 0
+      ? importedNote.tags
+      : (Array.isArray(existing?.tags) ? existing.tags : []),
+    aiSummary: existing?.aiSummary ?? importedNote.aiSummary,
+    aiSummaryEngine: existing?.aiSummaryEngine ?? importedNote.aiSummaryEngine,
+    aiExpansion: existing?.aiExpansion ?? importedNote.aiExpansion,
+    savedAt: existing?.savedAt ?? importedNote.savedAt,
   };
+
+  const notes = [...safeExistingNotes];
+  notes[existingIndex] = merged;
+  return { created, notes };
 }
 
 export function removeStoredNote(existingNotes, noteId) {

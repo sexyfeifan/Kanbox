@@ -184,6 +184,15 @@ function tagsFromNote(note) {
   return Array.from(new Set(tags)).slice(0, 20);
 }
 
+// 从多个候选字段里取第一个非负整数（点赞/收藏/评论数），拿不到返回 0。
+function nonNegativeInt(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return Math.floor(number);
+  }
+  return 0;
+}
+
 function notePayloadFromHtml(html, noteId, sourceUrl) {
   const state = extractInitialState(html);
   const noteRoot = state?.note || state?.noteData || null;
@@ -206,6 +215,12 @@ function notePayloadFromHtml(html, noteId, sourceUrl) {
     throw new Error('匿名解析返回的笔记内容为空');
   }
 
+  // 点赞/收藏/评论数：小红书笔记对象放在 interactInfo 里（P2#9 补全数据保真度）。
+  const interact = note.interactInfo || note.interactionInfo || {};
+  const likes = nonNegativeInt(interact.likedCount, interact.likeCount, note.likes, note.likedCount);
+  const collects = nonNegativeInt(interact.collectedCount, interact.collectCount, note.collects, note.collectedCount);
+  const comments = nonNegativeInt(interact.commentCount, interact.commentsCount, note.comments, note.commentCount);
+
   return {
     id: noteId,
     sourceUrl,
@@ -221,6 +236,9 @@ function notePayloadFromHtml(html, noteId, sourceUrl) {
     },
     tags: tagsFromNote(note),
     type: note.type === 'video' || note.video ? 'video' : 'normal',
+    likes,
+    collects,
+    comments,
   };
 }
 
