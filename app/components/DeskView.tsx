@@ -183,6 +183,9 @@ type GroupLabel = {
   noteCount: number;
 };
 const DESK_WORKSPACE_STORAGE_KEY = 'kanbox:desk-workspace:v1';
+// 库规模超过该阈值才启用离屏裁剪（虚拟渲染）；小库一律全量渲染，
+// 这样即使滚动位置跟踪出错，也不会出现「分组显示 N 条笔记却渲染不出卡片」（v0.7.8 修复）。
+const VIRTUALIZE_THRESHOLD = 200;
 
 // ── Organized layout (cards grouped by category clusters) ─────────────────────
 type OrgResult = {
@@ -1926,16 +1929,28 @@ export function DeskView() {
 
   useEffect(() => {
     const update = () => {
-      if (containerRef.current) {
-        setDims({
-          w: containerRef.current.offsetWidth,
-          h: containerRef.current.offsetHeight,
-        });
-      }
+      // h 是「视口高度」，只用于离屏裁剪判定，必须取 window.innerHeight；
+      // 之前取 containerRef.offsetHeight 会在内容变高后失真（v0.7.8 修复）。
+      setDims({
+        w: containerRef.current ? containerRef.current.offsetWidth : window.innerWidth,
+        h: window.innerHeight,
+      });
     };
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
+  }, []);
+
+  // 页面实际在 window 上滚动（外层容器无高度上限、随内容撑高）。
+  // 原实现把 onScroll 挂在 canvas 上（canvas 无 overflow、永不滚动），
+  // 导致 scrollY 永远停在 0，离屏裁剪把折叠区以下的分组永久隐藏（v0.7.8 修复）。
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrollY(window.scrollY ?? document.documentElement.scrollTop ?? document.body.scrollTop ?? 0);
+    };
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
@@ -3205,10 +3220,6 @@ export function DeskView() {
       {/* ── Desk canvas ── */}
       <div
         ref={canvasRef}
-        onScroll={(e) => {
-          const target = e.currentTarget;
-          setScrollY(target.scrollTop);
-        }}
         style={{
         position: 'relative',
         width: '100%',
@@ -3583,10 +3594,14 @@ export function DeskView() {
           const noteGroupId = deskState.noteGroupMap?.[note.id] || 'inbox';
           const isDimmed = activeCategory !== null && noteGroupId !== activeCategory;
 
-          // Virtual rendering: skip cards far outside viewport
-          const viewTop = scrollY - 200;
-          const viewBottom = scrollY + dims.h + 200;
-          if (pos.y < viewTop || pos.y > viewBottom) return null;
+          // Virtual rendering: only skip far-off-screen cards for large libraries.
+          // For small libraries render every card, so a scroll-tracking miss can never
+          // hide a group's cards (v0.7.8 regression fix).
+          if (visibleNotes.length > VIRTUALIZE_THRESHOLD) {
+            const viewTop = scrollY - 200;
+            const viewBottom = scrollY + dims.h + 200;
+            if (pos.y < viewTop || pos.y > viewBottom) return null;
+          }
 
           return (
             <DeskCard
