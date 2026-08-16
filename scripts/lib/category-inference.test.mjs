@@ -153,3 +153,93 @@ test('reCategorizeNotes migrates 待分类 notes to 其他 fallback when undeter
   assert.equal(result.remaining, 1);
   assert.equal(result.changed, true);
 });
+
+test('classifies fitness notes as 健身运动', () => {
+  const category = inferCategoryFromNote({
+    title: '新手减脂训练计划，在家也能练',
+    content: '力量训练、有氧结合，配合饮食',
+    rawContent: '',
+    tags: ['健身', '减脂', '运动'],
+  });
+  assert.equal(category, '健身运动');
+});
+
+test('classifies wellness notes as 健康养生', () => {
+  const category = inferCategoryFromNote({
+    title: '秋冬养生食谱，护肝养胃',
+    content: '中医调理、食疗滋补',
+    rawContent: '',
+    tags: ['养生', '健康'],
+  });
+  assert.equal(category, '健康养生');
+});
+
+test('classifies home decor notes as 家居生活', () => {
+  const category = inferCategoryFromNote({
+    title: '出租屋改造，小户型收纳技巧',
+    content: '软装、家具摆放',
+    rawContent: '',
+    tags: ['装修', '收纳'],
+  });
+  assert.equal(category, '家居生活');
+});
+
+test('classifies pet notes as 宠物', () => {
+  const category = inferCategoryFromNote({
+    title: '新手养猫指南，猫粮怎么选',
+    content: '猫咪日常、猫砂',
+    rawContent: '',
+    tags: ['宠物', '猫咪'],
+  });
+  assert.equal(category, '宠物');
+});
+
+test('classifies car notes as 汽车', () => {
+  const category = inferCategoryFromNote({
+    title: '预算15万买新能源电车怎么选',
+    content: '试驾、油耗、续航对比',
+    rawContent: '',
+    tags: ['买车', '新能源'],
+  });
+  assert.equal(category, '汽车');
+});
+
+test('classifies career notes as 职场', () => {
+  const category = inferCategoryFromNote({
+    title: '大厂面试高频题整理',
+    content: '简历怎么写、跳槽经验',
+    rawContent: '',
+    tags: ['职场', '面试'],
+  });
+  assert.equal(category, '职场');
+});
+
+test('classifies finance notes as 理财投资', () => {
+  const category = inferCategoryFromNote({
+    title: '基金定投怎么开始，攒钱攻略',
+    content: '理财、投资组合',
+    rawContent: '',
+    tags: ['理财', '基金'],
+  });
+  assert.equal(category, '理财投资');
+});
+
+test('classifies parenting notes as 母婴育儿', () => {
+  const category = inferCategoryFromNote({
+    title: '宝宝辅食添加顺序',
+    content: '育儿经验分享',
+    rawContent: '',
+    tags: ['母婴', '辅食'],
+  });
+  assert.equal(category, '母婴育儿');
+});
+
+test('classifies gaming notes as 游戏 (not 影像创作)', () => {
+  const category = inferCategoryFromNote({
+    title: '原神新版本攻略',
+    content: '抽卡、配队',
+    rawContent: '',
+    tags: ['手游', '游戏'],
+  });
+  assert.equal(category, '游戏');
+});
