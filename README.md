@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.7.7-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.7.8-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,10 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.7.8 更新
+
+- **修复分组空白** — 首页「显示条数但下方无卡片」：滚动位置追踪失效（挂在内层非滚动容器的 onScroll 从不触发）+ 视口高度误取外层高度，导致离屏裁剪永久跳过折叠区以下分组。改为监听 window 滚动 + 取 window.innerHeight，且小库（≤200 条）全量渲染不再裁剪
 
 ## 🆕 v0.7.7 更新
 
