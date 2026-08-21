@@ -37,6 +37,8 @@ import {
   getLocalServiceHealth,
   getLocalSetupInfo,
   getNotes,
+  getDeskWorkspace,
+  saveDeskWorkspace,
   importSharedNote,
   openBrowserExtensionSetup,
   openExternalUrl,
@@ -57,7 +59,6 @@ import {
   testAiConnection,
   testTranscribeConnection,
   batchProcessAi,
-  getPipelineStatus,
   subscribeToPipeline,
   getStorageInfo,
   setStorageLocation,
@@ -1138,7 +1139,7 @@ function ExpandedCard({
                           setExpansionError('视频尚未转写，正在自动转写文稿…');
                           await onTranscribe();
                         }
-                        let result = await getNoteExpansion(note.id);
+                        const result = await getNoteExpansion(note.id);
                         if (result.needsTranscript) {
                           setExpansionError('视频文稿尚未生成，请先在文稿页签点击「生成文稿」后重试');
                           return;
@@ -1212,6 +1213,7 @@ function ExpandedCard({
             cursor: 'zoom-out',
           }}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrls[lightboxIndex]}
             alt=""
@@ -1718,6 +1720,7 @@ export function DeskView() {
     }
     return { groups: [], noteGroupMap: {}, knownNoteIds: [] };
   });
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Note | null>(null);
@@ -1768,8 +1771,8 @@ export function DeskView() {
   const [aiSaving, setAiSaving] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
-  const [showApiKey, setShowApiKey] = useState(true);
-  const [showTranscribeApiKey, setShowTranscribeApiKey] = useState(true);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showTranscribeApiKey, setShowTranscribeApiKey] = useState(false);
   const [aiTranscribeTesting, setAiTranscribeTesting] = useState(false);
   const [aiTranscribeTestResult, setAiTranscribeTestResult] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [aiMessage, setAiMessage] = useState('');
@@ -1817,6 +1820,41 @@ export function DeskView() {
     const onLangChange = () => setLangVersion((v) => v + 1);
     window.addEventListener('kanbox:langchange', onLangChange);
     return () => window.removeEventListener('kanbox:langchange', onLangChange);
+  }, []);
+
+  // workspace.json 是跨重装/iCloud 恢复的持久真源；首次升级若后端还没有快照，
+  // 自动把旧 localStorage 状态迁移过去，保留用户已有的自定义分组与排序。
+  useEffect(() => {
+    let cancelled = false;
+    const loadWorkspace = async () => {
+      try {
+        const remote = await getDeskWorkspace();
+        if (cancelled) return;
+        const remoteHasState = remote.groups.length > 0
+          || Object.keys(remote.noteGroupMap || {}).length > 0
+          || Boolean(remote.knownNoteIds?.length);
+        if (remoteHasState) {
+          setDeskState(remote as DeskState);
+        } else {
+          let legacy: DeskState | null = null;
+          try {
+            const saved = window.localStorage.getItem(DESK_WORKSPACE_STORAGE_KEY);
+            legacy = saved ? JSON.parse(saved) as DeskState : null;
+          } catch {
+            legacy = null;
+          }
+          if (legacy && (legacy.groups?.length || Object.keys(legacy.noteGroupMap || {}).length)) {
+            await saveDeskWorkspace(legacy);
+          }
+        }
+      } catch {
+        // Sidecar may still be starting; localStorage remains the offline fallback.
+      } finally {
+        if (!cancelled) setWorkspaceLoaded(true);
+      }
+    };
+    void loadWorkspace();
+    return () => { cancelled = true; };
   }, []);
 
   // 订阅后台 AI 流水线实时进度（自动流水线 + 手动补跑共用；notes-changed 由 page.tsx 统一刷新）
@@ -1981,16 +2019,7 @@ export function DeskView() {
       return;
     }
 
-    let rawState = {};
-    try {
-      const saved = window.localStorage.getItem(DESK_WORKSPACE_STORAGE_KEY);
-      rawState = saved ? JSON.parse(saved) : {};
-    } catch {
-      rawState = {};
-    }
-
-    const nextState = ensureDeskState(rawState, notes) as DeskState;
-    setDeskState(nextState);
+    setDeskState((current) => ensureDeskState(current, notes) as DeskState);
   }, [notes]);
 
   useEffect(() => {
@@ -2000,6 +2029,16 @@ export function DeskView() {
 
     window.localStorage.setItem(DESK_WORKSPACE_STORAGE_KEY, JSON.stringify(deskState));
   }, [deskState]);
+
+  useEffect(() => {
+    if (!workspaceLoaded) return;
+    const timeoutId = window.setTimeout(() => {
+      void saveDeskWorkspace(deskState).catch(() => {
+        // localStorage remains available and a later change will retry persistence.
+      });
+    }, 350);
+    return () => window.clearTimeout(timeoutId);
+  }, [deskState, workspaceLoaded]);
 
   const groupNameById = useMemo(
     () => new Map(deskState.groups.map((group) => [group.id, group.name])),

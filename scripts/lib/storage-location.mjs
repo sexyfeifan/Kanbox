@@ -13,7 +13,7 @@
  * 完成数据复原，无需任何手动操作。
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { cp, mkdir } from 'node:fs/promises';
+import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -136,18 +136,11 @@ export function resolveDataDirectory(hint) {
     }
   }
 
-  // 自动探测：iCloud kanbox（第一搜索来源）→ 本机默认
+  // 兼容旧版本：只有 iCloud/kanbox 已经包含 notes.json 时才继续使用它。
+  // 新安装不再自动创建 iCloud 目录，真正默认到本机；切换 iCloud 必须由用户显式选择。
   const icloudKanbox = icloudKanboxPath();
-  if (existsSync(icloudKanbox)) {
+  if (existsSync(path.join(icloudKanbox, 'notes.json'))) {
     return isWritableDir(icloudKanbox) ? icloudKanbox : (hint && String(hint).trim()) || localDefaultDataDirectory();
-  }
-  if (isIcloudAvailable()) {
-    try {
-      mkdirSync(icloudKanbox, { recursive: true });
-    } catch {
-      return localDefaultDataDirectory();
-    }
-    return isWritableDir(icloudKanbox) ? icloudKanbox : localDefaultDataDirectory();
   }
   const hintPath = hint && String(hint).trim() ? String(hint).trim() : '';
   return hintPath || localDefaultDataDirectory();
@@ -162,28 +155,45 @@ export async function migrateDataIfNeeded(targetDir) {
   const target = path.resolve(String(targetDir || ''));
   const local = path.resolve(localDefaultDataDirectory());
   if (target === local) return { migrated: false };
+  const markerPath = path.join(target, '.kanbox-migration-in-progress');
   const targetHasNotes = existsSync(path.join(target, 'notes.json'));
   const localHasNotes = existsSync(path.join(local, 'notes.json'));
-  if (!targetHasNotes && localHasNotes) {
+  const migrationIncomplete = existsSync(markerPath);
+  if ((!targetHasNotes || migrationIncomplete) && localHasNotes) {
     await copyDataDirectory(local, target);
     return { migrated: true, from: local, to: target };
   }
   return { migrated: false };
 }
 
-async function copyDataDirectory(fromDir, toDir) {
+export async function copyDataDirectory(fromDir, toDir) {
   await mkdir(toDir, { recursive: true });
-  for (const name of ['notes.json', 'settings.json']) {
-    const src = path.join(fromDir, name);
-    if (existsSync(src)) {
-      await cp(src, path.join(toDir, name), { force: true }).catch(() => {});
+  const markerPath = path.join(toDir, '.kanbox-migration-in-progress');
+  await writeFile(markerPath, `${new Date().toISOString()}\n`, 'utf8');
+  try {
+    for (const name of ['notes.json', 'settings.json', 'workspace.json']) {
+      const src = path.join(fromDir, name);
+      if (existsSync(src)) {
+        await cp(src, path.join(toDir, name), { force: true });
+      }
     }
-  }
-  for (const name of ['media', 'backups']) {
-    const src = path.join(fromDir, name);
-    if (existsSync(src)) {
-      await cp(src, path.join(toDir, name), { recursive: true, force: true }).catch(() => {});
+    for (const name of ['media', 'backups']) {
+      const src = path.join(fromDir, name);
+      if (existsSync(src)) {
+        await cp(src, path.join(toDir, name), { recursive: true, force: true });
+      }
     }
+    const sourceNotes = path.join(fromDir, 'notes.json');
+    const targetNotes = path.join(toDir, 'notes.json');
+    if (existsSync(sourceNotes)) {
+      if (!existsSync(targetNotes) || !readFileSync(sourceNotes).equals(readFileSync(targetNotes))) {
+        throw new Error('数据迁移校验失败：notes.json 未完整复制');
+      }
+    }
+    await rm(markerPath, { force: true });
+  } catch (error) {
+    // 保留 marker，下一次迁移会识别为未完成并重新复制，绝不把半成品宣布为成功。
+    throw error;
   }
 }
 

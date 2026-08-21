@@ -7,7 +7,7 @@
 - Node 本地 sidecar
 - 安装包内置 Node 运行时
 - Chrome Quick Import 扩展
-- 本地 `notes.json` 数据存储（支持 iCloud / 本机默认 / 自定义三种位置）
+- 本地 `notes.json` + `workspace.json` 数据存储（支持 iCloud / 本机默认 / 自定义三种位置）
 
 ## 打包命令
 

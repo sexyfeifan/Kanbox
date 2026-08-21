@@ -25,6 +25,16 @@ const nodeRuntimes = {
     archiveSha256: 'd1b5e999db158c62fe8f7267a4476b035d8bd93b1a605bac24a3f0dd166e3316',
   },
 };
+const targetTriple = String(
+  process.env.TAURI_ENV_TARGET_TRIPLE
+  || process.env.CARGO_BUILD_TARGET
+  || '',
+).toLowerCase();
+const targetArchitecture = targetTriple.startsWith('x86_64')
+  ? 'x64'
+  : targetTriple.startsWith('aarch64')
+    ? 'arm64'
+    : process.arch === 'arm64' ? 'arm64' : 'x64';
 
 if (process.platform !== 'darwin') {
   console.log('Skipping macOS native video analyzer build on this platform.');
@@ -34,7 +44,7 @@ if (process.platform !== 'darwin') {
 await mkdir(outputDirectory, { recursive: true });
 
 async function ensureNodeRuntime() {
-  const architecture = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const architecture = targetArchitecture;
   const runtime = nodeRuntimes[architecture];
   const expectedMarker = `node-v${runtime.version}-darwin-${architecture}\n`;
   const currentMarker = await readFile(nodeVersionPath, 'utf8').catch(() => '');
@@ -73,7 +83,7 @@ await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', nodeRuntimeP
 await execFileAsync('/usr/bin/xcrun', [
   'swiftc',
   '-O',
-  '-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx13.0`,
+  '-target', `${targetArchitecture === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx13.0`,
   '-framework', 'AVFoundation',
   '-framework', 'Speech',
   '-Xlinker', '-sectcreate',
@@ -91,4 +101,4 @@ await execFileAsync('/usr/bin/codesign', ['--force', '--sign', '-', outputPath],
   maxBuffer: 1024 * 1024,
 });
 console.log(`Built ${outputPath}`);
-console.log(`Bundled Node ${nodeRuntimes[process.arch === 'arm64' ? 'arm64' : 'x64'].version}`);
+console.log(`Bundled Node ${nodeRuntimes[targetArchitecture].version} (${targetArchitecture})`);

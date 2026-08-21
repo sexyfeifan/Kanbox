@@ -66,3 +66,52 @@ test('localizeNoteMedia saves images and combines local OCR text', async () => {
     await rm(mediaDirectory, { recursive: true, force: true });
   }
 });
+
+test('localizeNoteMedia repairs localized images from sourceImageUrls', async () => {
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-media-repair-test-'));
+  const noteId = '64cb12340000000001020304';
+  const sourceUrl = 'https://sns-webpic-qc.xhscdn.com/original.png';
+  try {
+    const repaired = await localizeNoteMedia({
+      id: noteId,
+      imageUrls: [`http://127.0.0.1:4318/media/${noteId}/01.png`],
+      sourceImageUrls: [sourceUrl],
+      ocrText: '旧 OCR',
+      imageOcr: [{ imageUrl: 'local', text: '旧 OCR' }],
+      mediaStatus: 'partial',
+    }, {
+      mediaDirectory,
+      publicBaseUrl: 'http://127.0.0.1:4318',
+      fetchImpl: async () => new Response(tinyPng, {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }),
+      ocrRunner: async (paths) => paths.map((imagePath) => ({ path: imagePath, text: '新 OCR' })),
+    });
+
+    assert.deepEqual(repaired.sourceImageUrls, [sourceUrl]);
+    assert.equal(repaired.ocrText, '新 OCR');
+    assert.equal(repaired.mediaStatus, 'ready');
+    assert.equal((await readFile(path.join(mediaDirectory, noteId, '01.png'))).length, tinyPng.length);
+  } finally {
+    await rm(mediaDirectory, { recursive: true, force: true });
+  }
+});
+
+test('localizeNoteMedia never clears existing metadata without a recovery source', async () => {
+  const original = {
+    id: '64cb12340000000001020304',
+    imageUrls: ['http://127.0.0.1:4318/media/64cb12340000000001020304/01.png'],
+    sourceImageUrls: [],
+    ocrText: '不可丢失的 OCR',
+    imageOcr: [{ imageUrl: 'local', text: '不可丢失的 OCR' }],
+    mediaStatus: 'partial',
+  };
+  const repaired = await localizeNoteMedia(original, {
+    mediaDirectory: '/tmp/kanbox-media-no-write',
+    publicBaseUrl: 'http://127.0.0.1:4318',
+  });
+  assert.deepEqual(repaired.imageUrls, original.imageUrls);
+  assert.equal(repaired.ocrText, original.ocrText);
+  assert.deepEqual(repaired.imageOcr, original.imageOcr);
+});

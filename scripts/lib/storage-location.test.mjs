@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   classifyLocation,
+  copyDataDirectory,
   icloudDriveRoot,
   icloudKanboxPath,
   isIcloudAvailable,
@@ -40,5 +43,21 @@ test('storageInfo 返回完整字段', () => {
     assert.equal(info.icloudPath, icloudKanboxPath());
   } else {
     assert.equal(info.icloudPath, null);
+  }
+});
+
+test('copyDataDirectory verifies notes and removes the migration marker only after success', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'kanbox-storage-migration-'));
+  const source = path.join(root, 'source');
+  const target = path.join(root, 'target');
+  try {
+    await mkdir(source, { recursive: true });
+    const notes = '[{"id":"64cb12340000000001020304","title":"测试"}]\n';
+    await writeFile(path.join(source, 'notes.json'), notes, 'utf8');
+    await copyDataDirectory(source, target);
+    assert.equal(await readFile(path.join(target, 'notes.json'), 'utf8'), notes);
+    await assert.rejects(readFile(path.join(target, '.kanbox-migration-in-progress'), 'utf8'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

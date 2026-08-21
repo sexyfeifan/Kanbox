@@ -13,7 +13,6 @@ import { summarizeNote } from './lib/text-summary.mjs';
 import {
   computePendingAiKinds,
   expandWithAi,
-  hasTranscript,
   isAiConfigured,
   isTranscriptEnhanceConfigured,
   loadAiSettings,
@@ -60,6 +59,7 @@ const PORT = Number.parseInt(process.env.LOCAL_API_PORT || `${DEFAULT_PORT}`, 10
 const dataDirectory = resolveDataDirectory(process.env.LOCAL_APP_DATA_DIR);
 const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
+const workspaceFilePath = path.join(dataDirectory, 'workspace.json');
 const legacyNotesFilePath = path.join(legacyDataDirectory, 'notes.json');
 const mediaDirectory = path.join(dataDirectory, 'media');
 const publicBaseUrl = `http://127.0.0.1:${PORT}`;
@@ -256,7 +256,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.0';
+const BACKUP_VERSION = '0.8.1';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -381,6 +381,59 @@ async function writeLegacyNotes(notes) {
   await rename(legacyTempFilePath, legacyNotesFilePath);
 }
 
+function normalizeWorkspace(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const groups = Array.isArray(source.groups)
+    ? source.groups
+      .filter((group) => group && typeof group.id === 'string' && group.id.trim())
+      .slice(0, 200)
+      .map((group) => ({
+        id: group.id.trim().slice(0, 300),
+        name: String(group.name || '新分组').trim().slice(0, 200) || '新分组',
+        kind: group.kind === 'custom' ? 'custom' : group.kind === 'inbox' ? 'inbox' : 'auto',
+        sourceCategory: typeof group.sourceCategory === 'string' ? group.sourceCategory.trim().slice(0, 200) : '',
+      }))
+    : [];
+  const noteGroupMap = {};
+  if (source.noteGroupMap && typeof source.noteGroupMap === 'object') {
+    for (const [noteId, groupId] of Object.entries(source.noteGroupMap).slice(0, 100_000)) {
+      if (/^[0-9a-f]{24}$/i.test(noteId) && typeof groupId === 'string' && groupId.trim()) {
+        noteGroupMap[noteId.toLowerCase()] = groupId.trim().slice(0, 300);
+      }
+    }
+  }
+  const knownNoteIds = Array.isArray(source.knownNoteIds)
+    ? [...new Set(source.knownNoteIds.filter((id) => typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id)).map((id) => id.toLowerCase()))].slice(0, 100_000)
+    : [];
+  return { groups, noteGroupMap, knownNoteIds };
+}
+
+async function readWorkspace() {
+  if (!existsSync(workspaceFilePath)) return normalizeWorkspace({});
+  try {
+    return normalizeWorkspace(JSON.parse(await readFile(workspaceFilePath, 'utf8')));
+  } catch (error) {
+    const corruptPath = `${workspaceFilePath}.corrupt-${Date.now()}`;
+    await copyFile(workspaceFilePath, corruptPath).catch(() => {});
+    console.error('[kanbox] workspace.json 解析失败，已保留损坏副本:', error?.message || error);
+    return normalizeWorkspace({});
+  }
+}
+
+async function writeWorkspace(value) {
+  await ensureDataDirectory();
+  const workspace = normalizeWorkspace(value);
+  const tempPath = path.join(dataDirectory, `workspace.${process.pid}.${++writeNotesSeq}.next.json`);
+  try {
+    await writeFile(tempPath, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+    await rename(tempPath, workspaceFilePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+  return workspace;
+}
+
 async function getAllTags() {
   const notes = await readNotes();
   const tagMap = new Map();
@@ -501,14 +554,27 @@ async function repairNoteIntegrity(noteId) {
   if (noteIndex < 0) return null;
 
   const note = notes[noteIndex];
-  const repaired = await localizeNoteMedia(note, {
+  let repaired = await localizeNoteMedia(note, {
     mediaDirectory,
     publicBaseUrl,
-  }) || note; // P0#4 修复：localizeNoteMedia 异常时降级到原笔记，避免 null 崩溃
+  });
+
+  // 完整性检查会把缺失 video.mp4 的视频笔记列为异常，因此修复动作也必须真正
+  // 恢复视频。已有文稿时只补视频文件并保留文稿；没有文稿时交给后台流水线补跑。
+  const storedVideoPath = path.join(mediaDirectory, note.id, 'video.mp4');
+  if (note.type === 'video' && !existsSync(storedVideoPath)) {
+    const aiSettings = await loadAiSettings(dataDirectory);
+    const preserveTranscript = Boolean(note.transcriptText || note.transcriptSegments?.length);
+    repaired = await localizeNoteVideo(repaired, {
+      ...buildTranscriptOptions(aiSettings, { defer: !preserveTranscript }),
+      preserveTranscript,
+    });
+  }
 
   const updatedNotes = [...notes];
   updatedNotes[noteIndex] = repaired;
   await writeNotes(updatedNotes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
   return {
     notes: updatedNotes,
@@ -517,13 +583,14 @@ async function repairNoteIntegrity(noteId) {
 }
 
 async function buildNotesExport() {
-  const notes = await readNotes();
+  const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
   const exportDate = new Date().toISOString();
   return {
     exportDate,
     version: '1.0',
     noteCount: notes.length,
     notes,
+    workspace,
   };
 }
 
@@ -584,7 +651,7 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
 }
 
 async function createBackup() {
-  const notes = await readNotes();
+  const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const backupDir = path.join(dataDirectory, 'backups');
   await mkdir(backupDir, { recursive: true });
@@ -592,7 +659,8 @@ async function createBackup() {
   await writeFile(backupPath, JSON.stringify({
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    notes
+    notes,
+    workspace,
   }, null, 2), 'utf8');
   const stats = await stat(backupPath);
   return { ok: true, path: backupPath, size: stats.size };
@@ -625,6 +693,9 @@ async function restoreFromBackup(body) {
   }
 
   await writeNotes(existingNotes);
+  if (body.workspace && typeof body.workspace === 'object') {
+    await writeWorkspace(body.workspace);
+  }
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return {
     notes: existingNotes,
@@ -634,11 +705,9 @@ async function restoreFromBackup(body) {
   };
 }
 
-let autoBackupTimer = null;
-
 async function runAutoBackup() {
   try {
-    const notes = await readNotes();
+    const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
     if (notes.length === 0) return;
 
     const backupDir = path.join(dataDirectory, 'backups');
@@ -657,6 +726,7 @@ async function runAutoBackup() {
       type: 'auto',
       exportedAt: now.toISOString(),
       notes,
+      workspace,
     }, null, 2), 'utf8');
 
     console.log(`Auto-backup created: ${backupPath}`);
@@ -712,7 +782,7 @@ async function buildNotesResponse() {
   };
 }
 
-async function importNote(body = {}) {
+async function prepareNoteImport(body = {}) {
   const draggedPayload = body.note || parseDraggedNoteInput(body.input);
   const draggedCard = draggedPayload ? null : parseDraggedCardInput(body.input);
   let normalized;
@@ -749,7 +819,7 @@ async function importNote(body = {}) {
   } else {
     try {
       normalized = noteFromSharedText(body.input);
-    } catch (error) {
+    } catch {
       const sourceUrl = extractSharedNoteUrl(body.input);
       // 短链（xhslink.com）无法直接从 pathname 提取 noteId，交给匿名解析器展开重定向
       if (isShortLink(sourceUrl)) {
@@ -783,6 +853,10 @@ async function importNote(body = {}) {
     savedAt: new Date().toISOString(),
   };
 
+  return { note, aiSettings };
+}
+
+async function commitNoteImport(note, aiSettings) {
   const existingNotes = await readNotes();
   const merged = mergeImportedNote(existingNotes, note);
   await writeNotes(merged.notes);
@@ -875,7 +949,10 @@ function queueMutation(callback) {
 }
 
 function queueNoteImport(body) {
-  return queueMutation(() => importNote(body));
+  // 页面解析、媒体下载和 OCR 都在写队列外运行；只有最终重读、合并和原子写回
+  // 进入 mutationQueue，避免一个大视频导入阻塞编辑、删除与其它轻量操作。
+  return prepareNoteImport(body)
+    .then(({ note, aiSettings }) => queueMutation(() => commitNoteImport(note, aiSettings)));
 }
 
 function queueNoteDelete(noteId) {
@@ -1336,7 +1413,7 @@ const server = createServer(async (request, response) => {
       launchDetached('/usr/bin/osascript', [
         '-e', 'tell application "Kanbox" to quit',
         '-e', 'delay 1',
-        '-e', 'do shell script "open /Applications/Kanbox.app"',
+        '-e', 'do shell script "open -a Kanbox"',
       ]);
       sendJson(request, response, 200, { ok: true, message: '正在重启 Kanbox…' });
       return;
@@ -1352,6 +1429,18 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/notes') {
       sendJson(request, response, 200, await buildNotesResponse());
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/workspace') {
+      sendJson(request, response, 200, { ok: true, workspace: await readWorkspace() });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/workspace') {
+      const body = await readRequestBody(request);
+      const workspace = await queueMutation(() => writeWorkspace(body.workspace));
+      sendJson(request, response, 200, { ok: true, workspace });
       return;
     }
 
@@ -1781,7 +1870,7 @@ async function startServer() {
     }
     runAutoBackup();
     // Run auto-backup every 24 hours
-    autoBackupTimer = setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
+    setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
   };
 
   let retried = false;

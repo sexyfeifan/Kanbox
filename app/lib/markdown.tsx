@@ -52,6 +52,9 @@ function renderInline(nodes: InlineNode[], keyPrefix: string) {
       case 'em':
         return <em key={key} style={{ fontStyle: 'italic' }}>{node.value}</em>;
       case 'link':
+        if (!/^https?:\/\/[^\s]+$/i.test(node.href)) {
+          return <span key={key}>{node.value}</span>;
+        }
         return (
           <a key={key} href={node.href} target="_blank" rel="noreferrer" style={{ color: '#6B7FA3', textDecoration: 'underline' }}>
             {node.value}
@@ -86,7 +89,7 @@ function codeBlockStyle(): React.CSSProperties {
   };
 }
 
-function renderBlock(line: string, key: number, inList: boolean) {
+function renderBlock(line: string, key: number) {
   const heading = line.match(/^(#{1,6})\s+(.+)$/);
   if (heading) {
     const level = heading[1].length;
@@ -170,7 +173,7 @@ export function renderMarkdown(markdown: string, containerStyle?: React.CSSPrope
       codeBuffer.push(line);
       continue;
     }
-    const node = renderBlock(line, blockKey++, false);
+    const node = renderBlock(line, blockKey++);
     if (node) elements.push(node);
   }
   flushCode();

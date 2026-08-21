@@ -29,12 +29,6 @@ async function getCurrentPlatform() {
   if (!tab?.url) return 'unknown';
   const host = new URL(tab.url).hostname;
   if (host.includes('xiaohongshu.com')) return '小红书';
-  if (host.includes('bilibili.com')) return 'B站';
-  if (host.includes('weibo.com')) return '微博';
-  if (host.includes('douyin.com')) return '抖音';
-  if (host.includes('zhihu.com')) return '知乎';
-  if (host.includes('kuaishou.com')) return '快手';
-  if (host.includes('toutiao.com')) return '头条';
   return '未知';
 }
 
@@ -49,36 +43,6 @@ async function getCurrentTabNoteId() {
     if (host.includes('xiaohongshu.com')) {
       const m = path.match(/^\/(?:explore|search_result|discovery\/item)\/([0-9a-f]{24})/i);
       return m?.[1] || null;
-    }
-    // B站
-    if (host.includes('bilibili.com')) {
-      const m = path.match(/^\/(?:video|read|opus)\/(?:av|BV|cv)?([a-zA-Z0-9]+)/i);
-      return m?.[1] ? `bili_${m[1]}` : null;
-    }
-    // 微博
-    if (host.includes('weibo.com') || host.includes('weibo.cn')) {
-      const m = path.match(/^\/\d+\/([a-zA-Z0-9]+)/i) || path.match(/^\/detail\/([a-zA-Z0-9]+)/i);
-      return m?.[1] ? `weibo_${m[1]}` : null;
-    }
-    // 抖音
-    if (host.includes('douyin.com')) {
-      const m = path.match(/\/video\/(\d+)/i) || path.match(/\/note\/(\d+)/i);
-      return m?.[1] ? `dy_${m[1]}` : null;
-    }
-    // 知乎
-    if (host.includes('zhihu.com')) {
-      const m = path.match(/\/(?:p|answer)\/(\d+)/i);
-      return m?.[1] ? `zhihu_${m[1]}` : null;
-    }
-    // 快手
-    if (host.includes('kuaishou.com') || host.includes('gifshow.com')) {
-      const m = path.match(/\/short-video\/([a-zA-Z0-9]+)/i) || path.match(/\/photo\/([a-zA-Z0-9]+)/i);
-      return m?.[1] ? `ks_${m[1]}` : null;
-    }
-    // 头条
-    if (host.includes('toutiao.com')) {
-      const m = path.match(/\/article\/(\d+)/i) || path.match(/\/video\/(\d+)/i);
-      return m?.[1] ? `tt_${m[1]}` : null;
     }
   } catch {}
   return null;
@@ -96,10 +60,10 @@ async function saveCurrentNote() {
     // Send message to content script to capture and save
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'SAVE_CURRENT_NOTE' });
     if (response?.ok) {
-      btn.innerHTML = '✓ 已收藏';
+      btn.textContent = '✓ 已收藏';
       btn.style.background = '#6E9478';
       setTimeout(() => {
-        btn.innerHTML = '收藏当前笔记';
+        btn.textContent = '收藏当前笔记';
         btn.style.background = '#829987';
         btn.disabled = false;
         loadStats();
@@ -108,10 +72,10 @@ async function saveCurrentNote() {
       throw new Error(response?.error || '收藏失败');
     }
   } catch (error) {
-    btn.innerHTML = error.message || '收藏失败';
+    btn.textContent = error.message || '收藏失败';
     btn.style.background = '#B56A5B';
     setTimeout(() => {
-      btn.innerHTML = '收藏当前笔记';
+      btn.textContent = '收藏当前笔记';
       btn.style.background = '#829987';
       btn.disabled = false;
     }, 2000);
@@ -177,18 +141,36 @@ async function loadStats() {
     recentContainer.style.display = 'block';
     const recent = notes.slice(0, 3);
     const recentList = document.getElementById('recentList');
-    recentList.innerHTML = recent.map(note => `
-      <div class="recent-item">
-        ${note.coverUrl
-          ? `<img class="recent-thumb" src="${note.coverUrl}" alt="" />`
-          : `<div class="recent-thumb" style="background: linear-gradient(135deg, #82998722, #82998744);"></div>`
-        }
-        <div class="recent-info">
-          <div class="recent-name">${note.title || '未命名笔记'}</div>
-          <div class="recent-time">${formatTime(note.savedAt)}</div>
-        </div>
-      </div>
-    `).join('');
+    recentList.replaceChildren();
+    for (const note of recent) {
+      const item = document.createElement('div');
+      item.className = 'recent-item';
+
+      let thumb;
+      try {
+        const cover = new URL(note.coverUrl || '');
+        if (cover.protocol !== 'http:' && cover.protocol !== 'https:') throw new Error('unsupported cover');
+        thumb = document.createElement('img');
+        thumb.src = cover.toString();
+        thumb.alt = '';
+      } catch {
+        thumb = document.createElement('div');
+        thumb.style.background = 'linear-gradient(135deg, #82998722, #82998744)';
+      }
+      thumb.className = 'recent-thumb';
+
+      const info = document.createElement('div');
+      info.className = 'recent-info';
+      const name = document.createElement('div');
+      name.className = 'recent-name';
+      name.textContent = note.title || '未命名笔记';
+      const time = document.createElement('div');
+      time.className = 'recent-time';
+      time.textContent = formatTime(note.savedAt);
+      info.append(name, time);
+      item.append(thumb, info);
+      recentList.append(item);
+    }
   }
 
   // Check if current page is a note
@@ -199,13 +181,13 @@ async function loadStats() {
     // Check if already saved
     const saved = notes.some(n => n.id === noteId);
     if (saved) {
-      saveBtn.innerHTML = '✓ 已收藏过';
+      saveBtn.textContent = '✓ 已收藏过';
       saveBtn.style.background = '#6E9478';
       saveBtn.disabled = true;
     }
   } else {
     saveBtn.disabled = true;
-    saveBtn.innerHTML = '请先打开笔记页面';
+    saveBtn.textContent = '请先打开小红书笔记页面';
   }
 }
 

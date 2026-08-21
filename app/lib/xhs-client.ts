@@ -54,6 +54,17 @@ export type DeleteNoteResult = {
   deletedId: string;
 };
 
+export type DeskWorkspaceSnapshot = {
+  groups: Array<{
+    id: string;
+    name: string;
+    kind: 'auto' | 'custom' | 'inbox';
+    sourceCategory?: string;
+  }>;
+  noteGroupMap: Record<string, string>;
+  knownNoteIds?: string[];
+};
+
 export type AiSettings = {
   enabled: boolean;
   endpoint: string;
@@ -189,21 +200,9 @@ function normalizeRemoteNotes(payload: RemoteNotesPayload): NotesResponse {
   };
 }
 
-async function readEmbeddedNotes(): Promise<NotesResponse> {
-  return {
-    notes: [],
-    lastImportedAt: null,
-    source: 'embedded',
-  };
-}
-
 async function readNotes(): Promise<NotesResponse> {
-  try {
-    const payload = await fetchLocalApi<RemoteNotesPayload>('/notes');
-    return normalizeRemoteNotes(payload);
-  } catch {
-    return readEmbeddedNotes();
-  }
+  const payload = await fetchLocalApi<RemoteNotesPayload>('/notes');
+  return normalizeRemoteNotes(payload);
 }
 
 export async function getLocalServiceHealth(): Promise<LocalServiceHealth> {
@@ -246,6 +245,19 @@ export async function connectLocalAgent(client: AgentClient): Promise<{ ok: bool
 export async function getNotes(): Promise<Note[]> {
   const response = await readNotes();
   return response.notes;
+}
+
+export async function getDeskWorkspace(): Promise<DeskWorkspaceSnapshot> {
+  const payload = await fetchLocalApi<{ workspace?: DeskWorkspaceSnapshot }>('/workspace');
+  return payload.workspace || { groups: [], noteGroupMap: {}, knownNoteIds: [] };
+}
+
+export async function saveDeskWorkspace(workspace: DeskWorkspaceSnapshot): Promise<DeskWorkspaceSnapshot> {
+  const payload = await fetchLocalApi<{ workspace?: DeskWorkspaceSnapshot }>('/workspace', {
+    method: 'POST',
+    body: JSON.stringify({ workspace }),
+  });
+  return payload.workspace || workspace;
 }
 
 export async function importSharedNote(input: string): Promise<ImportNoteResult> {
@@ -476,8 +488,8 @@ export async function restoreFromBackup(file: File): Promise<RestoreResult> {
   const response = normalizeRemoteNotes(payload);
   return {
     notes: response.notes,
-    imported: (payload as any).imported || 0,
-    skipped: (payload as any).skipped || 0,
+    imported: payload.imported || 0,
+    skipped: payload.skipped || 0,
     total: response.notes.length,
   };
 }
@@ -667,7 +679,14 @@ export function formatDate(date: Date): string {
 
 export function subscribeToUpdates(onUpdate: () => void): () => void {
   const eventSource = new EventSource(`${LOCAL_API_BASE_URL}/events`);
-  eventSource.onmessage = () => onUpdate();
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse((event as MessageEvent).data);
+      if (data?.type === 'notes-changed') onUpdate();
+    } catch {
+      // Ignore connection and malformed events; only notes-changed requires a reload.
+    }
+  };
   eventSource.onerror = () => {
     // Will auto-reconnect
   };

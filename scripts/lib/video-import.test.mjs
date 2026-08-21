@@ -85,6 +85,40 @@ test('localizeNoteVideo keeps a saved video when transcription is unavailable', 
   }
 });
 
+test('localizeNoteVideo can restore video bytes without erasing an existing transcript', async () => {
+  const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-repair-test-'));
+  const noteId = '64cb12340000000001020304';
+  try {
+    const note = await localizeNoteVideo({
+      id: noteId,
+      type: 'video',
+      sourceVideoUrl: 'https://sns-video-hw.xhscdn.com/a.mp4',
+      transcriptText: '保留的文稿',
+      transcriptSegments: [{ start: 0, duration: 1, text: '保留的文稿' }],
+      transcriptEngine: 'local',
+    }, {
+      mediaDirectory,
+      publicBaseUrl: 'http://127.0.0.1:4318',
+      preserveTranscript: true,
+      fetchImpl: async () => new Response(Buffer.from('restored-video'), {
+        status: 200,
+        headers: { 'Content-Type': 'video/mp4' },
+      }),
+      analyzer: async () => { throw new Error('不应重新转写'); },
+    });
+
+    assert.equal(note.transcriptText, '保留的文稿');
+    assert.equal(note.transcriptSegments.length, 1);
+    assert.equal(note.videoStatus, 'ready');
+    assert.equal(
+      (await readFile(path.join(mediaDirectory, noteId, 'video.mp4'))).toString(),
+      'restored-video',
+    );
+  } finally {
+    await rm(mediaDirectory, { recursive: true, force: true });
+  }
+});
+
 test('reanalyzeStoredNoteVideo reuses the local video and preserves legacy frame OCR', async () => {
   const mediaDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-video-test-'));
   const noteId = '64cb12340000000001020304';

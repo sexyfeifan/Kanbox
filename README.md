@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.0-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.1-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，一次一条、由你手动触发 —— 不带 Cookie、没有批量抓取、没有定时任务，所以封控风险很低，不用担心账号出问题。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.1 更新
+
+- **完整性修复不再丢数据** — 缺失图片会从 `sourceImageUrls` 重新下载，无法恢复时保留现有图片引用与 OCR；缺失视频也可补回，并保留已有文稿
+- **存储迁移更安全** — 新增迁移中标记和 `notes.json` 内容校验，复制失败不会再被误报为成功；新安装默认使用本机，已有 iCloud 资料库继续兼容；自定义分组与排序写入 `workspace.json` 并纳入备份
+- **导入与断线体验** — 匿名解析、媒体下载和 OCR 移出全局写锁；本地服务短暂重启时保留上次成功加载的资料库，不再闪成空库
+- **扩展与安装包修复** — 正式安装包补齐 popup 与图标资源；扩展功能收敛到当前后端真正支持的小红书单篇公开笔记，消除无效的多平台入口；popup 改为安全 DOM 渲染
+- **安全与依赖更新** — Markdown 链接只允许 http/https，API Key 默认隐藏；Next.js / ESLint 配置升级到 16.3.2，并清理发布阻断的 Lint 问题
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema 与安装包统一升至 v0.8.1
 
 ## 🆕 v0.8.0 更新
 

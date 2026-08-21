@@ -52,8 +52,10 @@ export default function Home() {
           notesSignatureRef.current = signature;
           dispatch({ type: 'SET_NOTES', payload: notes });
         }
+        dispatch({ type: 'SET_ERROR', payload: null });
       } catch {
-        if (!cancelled) dispatch({ type: 'SET_ERROR', payload: '加载失败' });
+        // Keep the last successful snapshot visible during a sidecar restart or timeout.
+        if (!cancelled) dispatch({ type: 'SET_ERROR', payload: '本地服务暂时断开，当前显示上次成功加载的内容' });
       } finally {
         if (showLoading && !cancelled) dispatch({ type: 'SET_LOADING', payload: false });
       }

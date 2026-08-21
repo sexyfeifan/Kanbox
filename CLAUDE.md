@@ -54,6 +54,7 @@ npm run build
 - `GET /health`
 - `GET /events` — SSE 事件流（笔记变更、AI 流水线进度）
 - `GET /notes`
+- `GET /workspace` / `POST /workspace` — 自定义分组与排序持久化
 - `POST /notes/import`
 - `POST /notes/re-categorize` — 重新归档待整理笔记
 - `PATCH /notes/:id` — 更新标题、标签、分类

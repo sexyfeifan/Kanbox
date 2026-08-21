@@ -294,6 +294,15 @@ export async function localizeNoteVideo(note, options) {
   }
 
   const localVideoUrl = `${options.publicBaseUrl}/media/${note.id}/video.mp4`;
+  if (options.preserveTranscript) {
+    return {
+      ...note,
+      sourceVideoUrl,
+      videoUrl: localVideoUrl,
+      videoStatus: 'ready',
+      videoError: '',
+    };
+  }
   if (options.skipTranscript) {
     return {
       ...note,

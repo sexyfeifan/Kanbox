@@ -116,9 +116,25 @@ async function mapWithConcurrency(values, concurrency, callback) {
 
 export async function localizeNoteMedia(note, options) {
   const sourceUrls = Array.from(new Set(
-    (note.imageUrls || []).filter(isAllowedRemoteImageUrl),
+    [...(note.sourceImageUrls || []), ...(note.imageUrls || [])].filter(isAllowedRemoteImageUrl),
   )).slice(0, 20);
   if (sourceUrls.length === 0) {
+    // 已经本地化过的笔记，其 imageUrls 指向 127.0.0.1，真正的远程恢复来源在
+    // sourceImageUrls。若两边都没有可用远程地址，完整性修复必须保留现有引用和
+    // OCR，而不是把这些字段清空后写回 notes.json。
+    const hasExistingMedia = Boolean(
+      note.imageUrls?.length
+      || note.sourceImageUrls?.length
+      || note.imageOcr?.length
+      || note.ocrText,
+    );
+    if (hasExistingMedia) {
+      return {
+        ...note,
+        mediaStatus: note.mediaStatus || 'partial',
+        mediaError: note.mediaError || '没有可用的远程图片地址，无法重新下载',
+      };
+    }
     return {
       ...note,
       sourceImageUrls: [],
