@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +49,14 @@ import {
   writeStoragePointer,
 } from './lib/storage-location.mjs';
 import { aiPresets, validateProviderPresets } from './lib/ai-provider-presets.mjs';
+import { createFullArchive, restoreFullArchive } from './lib/full-archive.mjs';
+import {
+  initializeRecord,
+  mergeNoteCollections,
+  mergeWorkspaceRecords,
+  recordFingerprint,
+  stampRecord,
+} from './lib/sync-merge.mjs';
 
 const DEFAULT_PORT = 4318;
 const MCP_SERVER_NAME = 'kanbox-notes';
@@ -56,10 +65,21 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number.parseInt(process.env.LOCAL_API_PORT || `${DEFAULT_PORT}`, 10);
 // 数据目录按「自定义 → iCloud kanbox（第一搜索来源）→ 本机默认」优先级解析（v0.7.1）。
 // LOCAL_APP_DATA_DIR（main.rs 传的本机默认目录）仅作兜底 hint。
-const dataDirectory = resolveDataDirectory(process.env.LOCAL_APP_DATA_DIR);
-const legacyDataDirectory = path.join(os.homedir(), '.kanbox');
+// KANBOX_DATA_DIRECTORY 仅用于隔离的端到端测试和受控维护任务；正式桌面端仍按存储指针解析。
+const dataDirectory = process.env.KANBOX_DATA_DIRECTORY
+  ? path.resolve(process.env.KANBOX_DATA_DIRECTORY)
+  : resolveDataDirectory(process.env.LOCAL_APP_DATA_DIR);
+const legacyDataDirectory = process.env.KANBOX_LEGACY_DATA_DIRECTORY
+  ? path.resolve(process.env.KANBOX_LEGACY_DATA_DIRECTORY)
+  : path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
 const workspaceFilePath = path.join(dataDirectory, 'workspace.json');
+// 设备身份必须保存在本机稳定目录，不能跟随 iCloud 数据目录同步，否则两台 Mac
+// 会误用同一 deviceId。删除墓碑则保存在共享数据目录，用于阻止旧设备复活已删除笔记。
+const syncStateFilePath = process.env.KANBOX_DEVICE_STATE_PATH
+  ? path.resolve(process.env.KANBOX_DEVICE_STATE_PATH)
+  : path.join(localDefaultDataDirectory(), 'sync-device.json');
+const syncMetaFilePath = path.join(dataDirectory, 'sync-meta.json');
 const legacyNotesFilePath = path.join(legacyDataDirectory, 'notes.json');
 const mediaDirectory = path.join(dataDirectory, 'media');
 const publicBaseUrl = `http://127.0.0.1:${PORT}`;
@@ -256,7 +276,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.1';
+const BACKUP_VERSION = '0.8.2';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -310,6 +330,91 @@ async function ensureDataDirectory() {
   ]);
 }
 
+let syncStatePromise = null;
+
+async function loadSyncState() {
+  await ensureDataDirectory();
+  await mkdir(path.dirname(syncStateFilePath), { recursive: true });
+  try {
+    const parsed = JSON.parse(await readFile(syncStateFilePath, 'utf8'));
+    if (parsed && typeof parsed.deviceId === 'string' && /^[0-9a-f-]{36}$/i.test(parsed.deviceId)) {
+      return parsed;
+    }
+  } catch {
+    // 首次运行或损坏时创建新的本机设备身份。设备身份不随归档恢复，避免两台设备
+    // 共用同一个写入者 ID，导致冲突无法识别。
+  }
+  const state = { deviceId: randomUUID(), createdAt: new Date().toISOString() };
+  const tempPath = `${syncStateFilePath}.${process.pid}.next`;
+  await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  await rename(tempPath, syncStateFilePath);
+  return state;
+}
+
+function getSyncState() {
+  if (!syncStatePromise) syncStatePromise = loadSyncState().catch((error) => {
+    syncStatePromise = null;
+    throw error;
+  });
+  return syncStatePromise;
+}
+
+async function readSyncMeta() {
+  try {
+    const parsed = JSON.parse(await readFile(syncMetaFilePath, 'utf8'));
+    const tombstones = {};
+    for (const [id, value] of Object.entries(parsed?.tombstones || {}).slice(-100_000)) {
+      if (/^[0-9a-f]{24}$/i.test(id) && value && typeof value === 'object') {
+        tombstones[id.toLowerCase()] = {
+          revision: Number.isSafeInteger(Number(value.revision)) ? Number(value.revision) : 1,
+          updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : '',
+          updatedBy: typeof value.updatedBy === 'string' ? value.updatedBy.slice(0, 100) : '',
+        };
+      }
+    }
+    return { tombstones };
+  } catch {
+    return { tombstones: {} };
+  }
+}
+
+async function writeSyncMeta(meta) {
+  await ensureDataDirectory();
+  const tempPath = `${syncMetaFilePath}.${process.pid}.${++writeNotesSeq}.next`;
+  await writeFile(tempPath, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+  await rename(tempPath, syncMetaFilePath);
+}
+
+function tombstoneCoversNote(tombstone, note) {
+  if (!tombstone) return false;
+  const tombstoneRevision = Number(tombstone.revision) || 1;
+  const noteRevision = Number(note?.revision) || 1;
+  if (tombstoneRevision !== noteRevision) return tombstoneRevision > noteRevision;
+  return new Date(tombstone.updatedAt || 0).getTime() >= new Date(note?.updatedAt || note?.savedAt || 0).getTime();
+}
+
+async function applySyncTombstones(notes) {
+  const meta = await readSyncMeta();
+  return notes.filter((note) => !tombstoneCoversNote(meta.tombstones[note?.id], note));
+}
+
+async function recordNoteTombstone(note) {
+  const [{ deviceId }, meta] = await Promise.all([getSyncState(), readSyncMeta()]);
+  meta.tombstones[note.id] = {
+    revision: (Number(note.revision) || 1) + 1,
+    updatedAt: new Date().toISOString(),
+    updatedBy: deviceId,
+  };
+  await writeSyncMeta(meta);
+}
+
+async function clearNoteTombstone(noteId) {
+  const meta = await readSyncMeta();
+  if (!meta.tombstones[noteId]) return;
+  delete meta.tombstones[noteId];
+  await writeSyncMeta(meta);
+}
+
 async function readNotesFile(filePath) {
   if (!existsSync(filePath)) return [];
   let raw;
@@ -352,16 +457,32 @@ async function readNotes() {
   for (const note of legacyNotes) {
     if (!merged.has(note.id)) merged.set(note.id, note);
   }
-  return Array.from(merged.values());
+  return applySyncTombstones(Array.from(merged.values()));
 }
 
 async function writeNotes(notes) {
   await ensureDataDirectory();
+  const { deviceId } = await getSyncState();
+  // 写入前再次读取共享文件，把另一台设备在本次操作期间同步到本机的更高修订合并进来。
+  // 删除项由 sync-meta.json 墓碑过滤，因此不会因这一步被旧文件复活。
+  const diskNotes = await readNotesFile(notesFilePath);
+  const diskById = new Map(diskNotes.map((note) => [note?.id, note]));
+  const normalizedNotes = notes.map((note) => {
+    const initialized = initializeRecord(note, { deviceId });
+    const diskNote = diskById.get(initialized.id);
+    if (!diskNote || recordFingerprint(diskNote) === recordFingerprint(initialized)) return initialized;
+    const sameRevision = (Number(diskNote.revision) || 1) === (Number(initialized.revision) || 1);
+    const sameTimestamp = String(diskNote.updatedAt || diskNote.savedAt || '') === String(initialized.updatedAt || initialized.savedAt || '');
+    // 兼容尚未逐一加 stampRecord 的内部处理（OCR 修复、AI 流水线等）：只要它基于
+    // 当前版本产生了内容变化，就在写入边界统一提升修订号，防止合并器把结果丢掉。
+    return sameRevision && sameTimestamp ? stampRecord(initialized, { deviceId }) : initialized;
+  });
+  const convergedNotes = await applySyncTombstones(mergeNoteCollections(diskNotes, normalizedNotes).notes);
   // 串行化所有写操作，并用唯一临时文件名，避免并发写产生交错/损坏的 notes.json（B1 修复）
   const run = async () => {
     const tempPath = path.join(dataDirectory, `notes.${process.pid}.${++writeNotesSeq}.next.json`);
     try {
-      await writeFile(tempPath, `${JSON.stringify(notes, null, 2)}\n`, 'utf8');
+      await writeFile(tempPath, `${JSON.stringify(convergedNotes, null, 2)}\n`, 'utf8');
       await rename(tempPath, notesFilePath);
     } catch (error) {
       await rm(tempPath, { force: true }).catch(() => {});
@@ -405,7 +526,12 @@ function normalizeWorkspace(value) {
   const knownNoteIds = Array.isArray(source.knownNoteIds)
     ? [...new Set(source.knownNoteIds.filter((id) => typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id)).map((id) => id.toLowerCase()))].slice(0, 100_000)
     : [];
-  return { groups, noteGroupMap, knownNoteIds };
+  const revision = Number.isSafeInteger(Number(source.revision)) && Number(source.revision) > 0
+    ? Number(source.revision)
+    : 1;
+  const updatedAt = typeof source.updatedAt === 'string' ? source.updatedAt : '';
+  const updatedBy = typeof source.updatedBy === 'string' ? source.updatedBy.slice(0, 100) : '';
+  return { groups, noteGroupMap, knownNoteIds, revision, updatedAt, updatedBy };
 }
 
 async function readWorkspace() {
@@ -422,7 +548,18 @@ async function readWorkspace() {
 
 async function writeWorkspace(value) {
   await ensureDataDirectory();
-  const workspace = normalizeWorkspace(value);
+  const { deviceId } = await getSyncState();
+  const current = existsSync(workspaceFilePath) ? await readWorkspace() : normalizeWorkspace({});
+  const normalized = normalizeWorkspace(value);
+  const currentRevision = Number(current.revision) || 1;
+  const incomingRevision = Number(normalized.revision) || 1;
+  const merged = incomingRevision >= currentRevision
+    ? normalized
+    : mergeWorkspaceRecords(current, normalized);
+  const workspace = normalizeWorkspace(stampRecord({
+    ...merged,
+    revision: Math.max(currentRevision, incomingRevision),
+  }, { deviceId }));
   const tempPath = path.join(dataDirectory, `workspace.${process.pid}.${++writeNotesSeq}.next.json`);
   try {
     await writeFile(tempPath, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
@@ -453,14 +590,15 @@ async function renameTag(oldName, newName) {
   // 空标签名会经 .filter(Boolean) 变成「静默删除该标签」，必须显式拒绝（P1#5）。
   if (!cleanedNewName) throw new Error('标签名不能为空');
   const notes = await readNotes();
+  const { deviceId } = await getSyncState();
   let renamedCount = 0;
   const updated = notes.map(note => {
     if (!Array.isArray(note.tags) || !note.tags.includes(oldName)) return note;
     renamedCount++;
-    return {
+    return stampRecord({
       ...note,
       tags: [...new Set(note.tags.map(t => t === oldName ? cleanedNewName : t).filter(Boolean))],
-    };
+    }, { deviceId });
   });
   await writeNotes(updated);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
@@ -469,14 +607,15 @@ async function renameTag(oldName, newName) {
 
 async function deleteTag(tagName) {
   const notes = await readNotes();
+  const { deviceId } = await getSyncState();
   let deletedCount = 0;
   const updated = notes.map(note => {
     if (!Array.isArray(note.tags) || !note.tags.includes(tagName)) return note;
     deletedCount++;
-    return {
+    return stampRecord({
       ...note,
       tags: note.tags.filter(t => t !== tagName),
-    };
+    }, { deviceId });
   });
   await writeNotes(updated);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
@@ -652,6 +791,7 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
 
 async function createBackup() {
   const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
+  const { deviceId } = await getSyncState();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const backupDir = path.join(dataDirectory, 'backups');
   await mkdir(backupDir, { recursive: true });
@@ -659,6 +799,7 @@ async function createBackup() {
   await writeFile(backupPath, JSON.stringify({
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
+    sourceDeviceId: deviceId,
     notes,
     workspace,
   }, null, 2), 'utf8');
@@ -666,48 +807,124 @@ async function createBackup() {
   return { ok: true, path: backupPath, size: stats.size };
 }
 
+async function createArchiveBackup() {
+  const [notes, workspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
+  const result = await createFullArchive({
+    dataDirectory,
+    notes,
+    workspace,
+    deviceId: syncState.deviceId,
+  });
+  if (process.platform === 'darwin' && !process.env.KANBOX_DATA_DIRECTORY) {
+    launchDetached('/usr/bin/open', ['-R', result.path]);
+  }
+  return {
+    ...result,
+    downloadUrl: `/data/archive/download/${encodeURIComponent(result.name)}`,
+  };
+}
+
+async function receiveArchiveUpload(request) {
+  const contentLength = Number(request.headers['content-length'] || 0);
+  const maxBytes = 100 * 1024 * 1024 * 1024;
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) throw new Error('完整归档超过 100GB 上限');
+  const incomingDirectory = path.join(dataDirectory, 'backups', '.incoming');
+  await mkdir(incomingDirectory, { recursive: true });
+  const archivePath = path.join(incomingDirectory, `restore-${process.pid}-${randomUUID()}.kanbox`);
+  const handle = await open(archivePath, 'wx');
+  let totalBytes = 0;
+  try {
+    for await (const chunk of request) {
+      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      totalBytes += buffer.length;
+      if (totalBytes > maxBytes) throw new Error('完整归档超过 100GB 上限');
+      await handle.write(buffer);
+    }
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await rm(archivePath, { force: true }).catch(() => {});
+    throw error;
+  }
+  await handle.close();
+  if (totalBytes === 0) {
+    await rm(archivePath, { force: true }).catch(() => {});
+    throw new Error('完整归档为空');
+  }
+  return archivePath;
+}
+
+async function restoreArchiveUpload(request) {
+  const archivePath = await receiveArchiveUpload(request);
+  try {
+    return await queueMutation(async () => {
+      const [localNotes, localWorkspace] = await Promise.all([readNotes(), readWorkspace()]);
+      return restoreFullArchive({
+        archivePath,
+        dataDirectory,
+        localNotes,
+        localWorkspace,
+        writeNotes,
+        writeWorkspace,
+      });
+    });
+  } finally {
+    await rm(archivePath, { force: true }).catch(() => {});
+  }
+}
+
+async function sendArchiveDownload(request, response, fileName) {
+  if (!/^kanbox-full-[0-9T-]+\.kanbox$/i.test(fileName)) return false;
+  const archivePath = path.join(dataDirectory, 'backups', fileName);
+  try {
+    const fileStats = await stat(archivePath);
+    applyCorsHeaders(request, response);
+    response.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Length': fileStats.size,
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Cache-Control': 'no-store',
+    });
+    const stream = createReadStream(archivePath);
+    stream.on('error', () => response.destroy());
+    request.on('close', () => stream.destroy());
+    stream.pipe(response);
+  } catch {
+    sendJson(request, response, 404, { ok: false, error: '完整归档不存在' });
+  }
+  return true;
+}
+
 async function restoreFromBackup(body) {
   if (!body || !Array.isArray(body.notes)) {
     throw new Error('备份文件格式不正确');
   }
 
-  const existingNotes = await readNotes();
-  const existingIds = new Set(existingNotes.map(n => n.id));
-  let importedCount = 0;
-  let skippedCount = 0;
-
-  for (const note of body.notes) {
-    if (
-      !note
-      || typeof note.id !== 'string'
-      || !/^[0-9a-f]{24}$/i.test(note.id)
-      || existingIds.has(note.id)
-      || !isUsableStoredNote(note)
-    ) {
-      // 校验字段形状，避免畸形笔记污染 notes.json（B18 修复）
-      skippedCount++;
-      continue;
-    }
-    existingNotes.push(note);
-    importedCount++;
-  }
-
-  await writeNotes(existingNotes);
+  const [existingNotes, existingWorkspace] = await Promise.all([readNotes(), readWorkspace()]);
+  const validIncoming = body.notes.filter((note) => note
+    && typeof note.id === 'string'
+    && /^[0-9a-f]{24}$/i.test(note.id)
+    && isUsableStoredNote(note));
+  const merged = mergeNoteCollections(existingNotes, validIncoming);
+  await writeNotes(merged.notes);
   if (body.workspace && typeof body.workspace === 'object') {
-    await writeWorkspace(body.workspace);
+    await writeWorkspace(mergeWorkspaceRecords(existingWorkspace, body.workspace));
   }
+  const finalNotes = await readNotes();
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return {
-    notes: existingNotes,
-    imported: importedCount,
-    skipped: skippedCount,
-    total: existingNotes.length,
+    notes: finalNotes,
+    imported: merged.stats.added,
+    updated: merged.stats.updated,
+    kept: merged.stats.kept + merged.stats.unchanged,
+    conflicts: merged.stats.conflicts,
+    skipped: body.notes.length - validIncoming.length,
+    total: finalNotes.length,
   };
 }
 
 async function runAutoBackup() {
   try {
-    const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
+    const [notes, workspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
     if (notes.length === 0) return;
 
     const backupDir = path.join(dataDirectory, 'backups');
@@ -725,6 +942,7 @@ async function runAutoBackup() {
       version: BACKUP_VERSION,
       type: 'auto',
       exportedAt: now.toISOString(),
+      sourceDeviceId: syncState.deviceId,
       notes,
       workspace,
     }, null, 2), 'utf8');
@@ -763,7 +981,7 @@ async function getDataInfo() {
   try {
     const backupDir = path.join(dataDirectory, 'backups');
     const backups = await readdir(backupDir).catch(() => []);
-    backupCount = backups.filter(f => f.endsWith('.json')).length;
+    backupCount = backups.filter(f => f.endsWith('.json') || f.endsWith('.kanbox')).length;
   } catch {}
 
   return {
@@ -852,13 +1070,19 @@ async function prepareNoteImport(body = {}) {
     category: inferCategoryFromNote(imported),
     savedAt: new Date().toISOString(),
   };
-
-  return { note, aiSettings };
+  const { deviceId } = await getSyncState();
+  return { note: initializeRecord(note, { deviceId }), aiSettings };
 }
 
 async function commitNoteImport(note, aiSettings) {
+  await clearNoteTombstone(note.id);
   const existingNotes = await readNotes();
   const merged = mergeImportedNote(existingNotes, note);
+  const mergedIndex = merged.notes.findIndex((entry) => entry.id === note.id);
+  if (!merged.created && mergedIndex >= 0) {
+    const { deviceId } = await getSyncState();
+    merged.notes[mergedIndex] = stampRecord(merged.notes[mergedIndex], { deviceId });
+  }
   await writeNotes(merged.notes);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
@@ -873,9 +1097,9 @@ async function commitNoteImport(note, aiSettings) {
 
   return {
     notes: merged.notes,
-    note,
+    note: merged.notes[mergedIndex] || note,
     created: merged.created,
-    lastImportedAt: note.savedAt,
+    lastImportedAt: (merged.notes[mergedIndex] || note).savedAt,
   };
 }
 
@@ -883,6 +1107,7 @@ async function deleteNote(noteId) {
   const existingNotes = await readNotes();
   const removed = removeStoredNote(existingNotes, noteId);
   if (!removed.deletedNote) return null;
+  await recordNoteTombstone(removed.deletedNote);
 
   if (path.resolve(dataDirectory) !== path.resolve(legacyDataDirectory) && existsSync(legacyNotesFilePath)) {
     const legacyNotes = await readNotesFile(legacyNotesFilePath);
@@ -907,6 +1132,7 @@ async function updateNote(noteId, updates = {}) {
   if (noteIndex < 0) return null;
 
   const note = existingNotes[noteIndex];
+  const { deviceId } = await getSyncState();
   const updated = { ...note };
 
   if (typeof updates.title === 'string') {
@@ -927,13 +1153,13 @@ async function updateNote(noteId, updates = {}) {
   }
 
   const updatedNotes = [...existingNotes];
-  updatedNotes[noteIndex] = updated;
+  updatedNotes[noteIndex] = stampRecord(updated, { deviceId });
   await writeNotes(updatedNotes);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
   return {
     notes: updatedNotes,
-    note: updated,
+    note: updatedNotes[noteIndex],
     lastImportedAt: getLastImportedAt(updatedNotes),
   };
 }
@@ -953,6 +1179,81 @@ function queueNoteImport(body) {
   // 进入 mutationQueue，避免一个大视频导入阻塞编辑、删除与其它轻量操作。
   return prepareNoteImport(body)
     .then(({ note, aiSettings }) => queueMutation(() => commitNoteImport(note, aiSettings)));
+}
+
+async function mapConcurrent(values, concurrency, callback) {
+  const results = new Array(values.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < values.length) {
+      const index = cursor++;
+      results[index] = await callback(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
+async function commitBatchNoteImport(preparedResults) {
+  let notes = await readNotes();
+  const { deviceId } = await getSyncState();
+  const results = [];
+  for (const prepared of preparedResults) {
+    if (!prepared.ok) {
+      results.push(prepared);
+      continue;
+    }
+    const merged = mergeImportedNote(notes, prepared.note);
+    await clearNoteTombstone(prepared.note.id);
+    const noteIndex = merged.notes.findIndex((entry) => entry.id === prepared.note.id);
+    if (!merged.created && noteIndex >= 0) {
+      merged.notes[noteIndex] = stampRecord(merged.notes[noteIndex], { deviceId });
+    }
+    notes = merged.notes;
+    const mergedNote = notes[noteIndex] || prepared.note;
+    results.push({ ok: true, id: mergedNote.id, title: mergedNote.title, created: merged.created });
+    if (prepared.aiSettings.autoPipeline !== false) {
+      const autoKinds = computePendingAiKinds(mergedNote, prepared.aiSettings);
+      if (autoKinds.length > 0) enqueuePipeline(mergedNote.id, autoKinds, { delayMs: AUTO_PIPELINE_DELAY_MS });
+    }
+  }
+  await writeNotes(notes);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  return {
+    notes,
+    results,
+    succeeded: results.filter((result) => result.ok).length,
+    failed: results.filter((result) => !result.ok).length,
+    created: results.filter((result) => result.ok && result.created).length,
+    updated: results.filter((result) => result.ok && !result.created).length,
+    lastImportedAt: getLastImportedAt(notes),
+  };
+}
+
+function queueBatchNoteImport(body = {}) {
+  const rawItems = Array.isArray(body.items)
+    ? body.items
+    : Array.isArray(body.inputs)
+      ? body.inputs.map((input) => ({ input }))
+      : [];
+  const items = rawItems
+    .map((item) => typeof item === 'string' ? { input: item } : item)
+    .filter((item) => item && typeof item === 'object');
+  if (items.length === 0) throw new Error('请至少提供一条待导入笔记');
+  if (items.length > 50) throw new Error('单次最多批量导入 50 条笔记');
+
+  return mapConcurrent(items, 3, async (item, index) => {
+    try {
+      return { ok: true, ...await prepareNoteImport(item), index };
+    } catch (error) {
+      return {
+        ok: false,
+        index,
+        input: typeof item.input === 'string' ? item.input.slice(0, 500) : '',
+        error: error instanceof Error ? error.message : '导入失败',
+      };
+    }
+  }).then((prepared) => queueMutation(() => commitBatchNoteImport(prepared)));
 }
 
 function queueNoteDelete(noteId) {
@@ -1449,6 +1750,11 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'POST' && url.pathname === '/notes/import/batch') {
+      sendJson(request, response, 200, await queueBatchNoteImport(await readRequestBody(request, 5 * 1024 * 1024)));
+      return;
+    }
+
     // 「重新归档」：对待整理（category 缺失/空/「待分类」）的笔记重新跑分类推断，
     // 把能确定分类的笔记写回 category，让前端 desk-workspace 自动归位到对应分类组。
     if (request.method === 'POST' && url.pathname === '/notes/re-categorize') {
@@ -1692,6 +1998,13 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    const archiveDownloadMatch = url.pathname.match(/^\/data\/archive\/download\/([^/]+)$/);
+    if (request.method === 'GET' && archiveDownloadMatch) {
+      const sent = await sendArchiveDownload(request, response, decodeURIComponent(archiveDownloadMatch[1]));
+      if (!sent) sendJson(request, response, 404, { ok: false, error: '完整归档不存在' });
+      return;
+    }
+
     // 存储位置（iCloud / 本机 / 自定义）读取与切换（v0.7.1）
     if (request.method === 'GET' && url.pathname === '/storage') {
       sendJson(request, response, 200, { ok: true, ...storageInfo(dataDirectory) });
@@ -1774,6 +2087,18 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'POST' && url.pathname === '/data/archive') {
+      sendJson(request, response, 200, await createArchiveBackup());
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/archive/restore') {
+      const result = await restoreArchiveUpload(request);
+      broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+      sendJson(request, response, 200, { ...result, notes: await readNotes() });
+      return;
+    }
+
     if (request.method === 'POST' && url.pathname === '/data/restore') {
       const contentType = request.headers['content-type'] || '';
       let parsedBody;
@@ -1850,7 +2175,9 @@ async function findStaleSidecarPid() {
 async function startServer() {
   await ensureDataDirectory();
   // 首次切到 iCloud / 自定义目录时，把本机数据复制过去（保留本机兜底），实现无缝切换与跨电脑复原。
-  const migration = await migrateDataIfNeeded(dataDirectory);
+  const migration = process.env.KANBOX_DATA_DIRECTORY
+    ? { migrated: false }
+    : await migrateDataIfNeeded(dataDirectory);
   if (migration.migrated) {
     console.log(`[kanbox] 已把本机数据迁移到 ${migration.to}`);
   }

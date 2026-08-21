@@ -171,7 +171,7 @@ export async function copyDataDirectory(fromDir, toDir) {
   const markerPath = path.join(toDir, '.kanbox-migration-in-progress');
   await writeFile(markerPath, `${new Date().toISOString()}\n`, 'utf8');
   try {
-    for (const name of ['notes.json', 'settings.json', 'workspace.json']) {
+    for (const name of ['notes.json', 'settings.json', 'workspace.json', 'sync-meta.json']) {
       const src = path.join(fromDir, name);
       if (existsSync(src)) {
         await cp(src, path.join(toDir, name), { force: true });

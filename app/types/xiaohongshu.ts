@@ -42,6 +42,11 @@ export interface Note {
   comments: number;
   category: string;
   savedAt: Date;
+  updatedAt?: string;
+  updatedBy?: string;
+  revision?: number;
+  syncConflict?: boolean;
+  syncConflictFields?: string[];
   tags: string[];
   type?: 'video' | 'normal';
   imageAspect?: 'tall' | 'medium' | 'short' | 'normal';

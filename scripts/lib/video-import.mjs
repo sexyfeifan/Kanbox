@@ -1,5 +1,6 @@
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -68,7 +69,7 @@ async function downloadVideo(url, noteDirectory, fetchImpl) {
   if (declaredLength > MAX_VIDEO_BYTES) throw new Error('视频超过 600MB');
 
   const finalPath = path.join(noteDirectory, 'video.mp4');
-  const temporaryPath = path.join(noteDirectory, 'video.part');
+  const temporaryPath = path.join(noteDirectory, `video.part-${process.pid}-${randomUUID()}`);
   let receivedBytes = 0;
   const limiter = new Transform({
     transform(chunk, _encoding, callback) {

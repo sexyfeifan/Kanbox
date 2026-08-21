@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -72,7 +73,14 @@ async function downloadImage(url, noteDirectory, index, fetchImpl) {
 
   const fileName = `${String(index + 1).padStart(2, '0')}${extension}`;
   const filePath = path.join(noteDirectory, fileName);
-  await writeFile(filePath, buffer);
+  const temporaryPath = `${filePath}.part-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temporaryPath, buffer);
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
   return { fileName, filePath, sourceUrl: url };
 }
 

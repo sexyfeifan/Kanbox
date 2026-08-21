@@ -90,6 +90,9 @@ export function ensureDeskState(rawState, notes) {
     groups: populatedGroups,
     noteGroupMap,
     knownNoteIds: Array.from(noteIds),
+    revision: Number.isSafeInteger(Number(rawState?.revision)) ? Number(rawState.revision) : undefined,
+    updatedAt: typeof rawState?.updatedAt === 'string' ? rawState.updatedAt : undefined,
+    updatedBy: typeof rawState?.updatedBy === 'string' ? rawState.updatedBy : undefined,
   };
 }
 

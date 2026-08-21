@@ -2,7 +2,7 @@
 
 ## 当前形态
 
-- Tauri 桌面应用（macOS 13+, Apple Silicon）
+- Tauri 桌面应用（macOS 13+，Apple Silicon / Intel）
 - Next.js 首页整理台
 - Node 本地 sidecar
 - 安装包内置 Node 运行时
@@ -26,7 +26,7 @@ npm run tauri:build
 - 视频保存到本地，由 macOS Speech 分段离线转写
 - App 不保存小红书 Cookie
 - App 不调用收藏夹或评论接口，也不回退到 Chrome 登录态
-- App 不做定时任务和后台抓取
+- App 不做定时抓取；批量导入仅处理用户主动粘贴的最多 50 条单篇公开笔记链接
 - 默认不联网做 AI；仅当用户主动填 API key 开启在线摘要/拓展/转写增强时，才单条、按需发往用户指定的服务商
 
 ## 当前风险

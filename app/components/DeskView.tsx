@@ -40,12 +40,15 @@ import {
   getDeskWorkspace,
   saveDeskWorkspace,
   importSharedNote,
+  importSharedNotes,
   openBrowserExtensionSetup,
   openExternalUrl,
   updateNote,
   getDataInfo,
   createBackup,
+  createFullArchive as createFullArchiveBackup,
   restoreFromBackup,
+  restoreFullArchive as restoreFullArchiveBackup,
   checkDataIntegrity,
   repairNote,
   getAllTags,
@@ -173,6 +176,9 @@ type DeskState = {
   groups: DeskGroup[];
   noteGroupMap: Record<string, string>;
   knownNoteIds?: string[];
+  revision?: number;
+  updatedAt?: string;
+  updatedBy?: string;
 };
 type GroupLabel = {
   groupId: string;
@@ -1639,7 +1645,7 @@ function SetupDialog({
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span>📺</span>
-                    <span>支持小红书、B站、微博、抖音、知乎、快手、头条</span>
+                    <span>稳定支持小红书单篇公开笔记，不读取账号登录态</span>
                   </div>
                 </div>
               </details>
@@ -1752,6 +1758,7 @@ export function DeskView() {
   const [integrityResult, setIntegrityResult] = useState<{ totalNotes: number; healthyNotes: number; brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }> } | null>(null);
   const [checking, setChecking] = useState(false);
   const [backing, setBacking] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
   // AI settings
@@ -2019,7 +2026,7 @@ export function DeskView() {
       return;
     }
 
-    setDeskState((current) => ensureDeskState(current, notes) as DeskState);
+    setDeskState((current) => ensureDeskState(current, notes) as unknown as DeskState);
   }, [notes]);
 
   useEffect(() => {
@@ -2366,18 +2373,36 @@ export function DeskView() {
     if (!pasteUrl.trim() || pasteLoading) return;
     setPasteLoading(true);
     try {
-      await runImport(pasteUrl);
+      const inputs = pasteUrl.split(/\n+/).map((value) => value.trim()).filter(Boolean);
+      if (inputs.length > 1) {
+        setImportFeedback({ phase: 'processing', title: '批量导入', message: `正在处理 ${inputs.length} 条笔记…` });
+        const result = await importSharedNotes(inputs);
+        setNotes(result.notes);
+        setImportFeedback({
+          phase: result.failed > 0 ? 'error' : 'complete',
+          title: '批量导入完成',
+          message: `成功 ${result.succeeded} 条，失败 ${result.failed} 条`,
+        });
+        dismissImportFeedback(result.failed > 0 ? 'error' : 'complete', 3600);
+      } else {
+        await runImport(pasteUrl);
+      }
       setPasteUrl('');
       setShowPasteInput(false);
-    } catch {
-      // Error is already handled in runImport
+    } catch (error) {
+      setImportFeedback({
+        phase: 'error',
+        title: '批量导入失败',
+        message: error instanceof Error ? error.message : '请检查链接后重试',
+      });
+      dismissImportFeedback('error', 3600);
     } finally {
       setPasteLoading(false);
     }
   };
 
   const handlePasteInputKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       void handlePasteUrlSubmit();
     }
@@ -2646,21 +2671,47 @@ export function DeskView() {
     }
   };
 
+  const handleCreateFullArchive = async () => {
+    if (archiving) return;
+    setArchiving(true);
+    try {
+      const result = await createFullArchiveBackup();
+      const info = await getDataInfo();
+      setDataInfo(info);
+      setImportFeedback({
+        phase: 'complete',
+        title: '完整归档已创建',
+        message: `${result.noteCount} 条笔记及全部媒体，${formatBytes(result.size)}`,
+      });
+      dismissImportFeedback('complete', 3200);
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: '完整归档失败', message: error instanceof Error ? error.message : '请重试' });
+      dismissImportFeedback('error', 3600);
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const handleRestoreBackup = async () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
+    input.accept = '.kanbox,.json';
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       setRestoring(true);
       try {
-        const result = await restoreFromBackup(file);
+        const fullArchive = file.name.toLowerCase().endsWith('.kanbox');
+        const result = fullArchive
+          ? await restoreFullArchiveBackup(file)
+          : await restoreFromBackup(file);
         setNotes(result.notes);
         setImportFeedback({
           phase: 'complete',
           title: '数据恢复',
-          message: `成功导入 ${result.imported} 条笔记，跳过 ${result.skipped} 条重复`,
+          message: fullArchive
+            ? `新增 ${result.imported} 条，更新 ${result.updated || 0} 条，合并冲突 ${result.conflicts || 0} 条`
+            : `新增 ${result.imported} 条，更新 ${result.updated || 0} 条，跳过 ${result.skipped} 条无效记录`,
         });
         dismissImportFeedback('complete', 3000);
         const info = await getDataInfo();
@@ -3722,21 +3773,23 @@ export function DeskView() {
                     color: '#8F8A82',
                     pointerEvents: 'none',
                   }} />
-                  <input
+                  <textarea
                     value={pasteUrl}
                     onChange={(e) => setPasteUrl(e.target.value)}
                     onKeyDown={handlePasteInputKeyDown}
-                    placeholder={t('pasteLinkPlaceholder')}
+                    placeholder="每行粘贴一条小红书链接，⌘↵ 开始批量导入"
                     autoFocus
                     style={{
                       width: 320,
-                      height: 40,
-                      padding: '0 36px 0 36px',
-                      borderRadius: 20,
+                      height: 82,
+                      padding: '12px 36px',
+                      borderRadius: 18,
                       border: '1px solid rgba(73,56,28,0.07)',
                       background: 'rgba(253,252,250,0.95)',
                       color: '#454248',
                       fontSize: 13,
+                      lineHeight: 1.5,
+                      resize: 'none',
                       backdropFilter: 'blur(10px)',
                       WebkitBackdropFilter: 'blur(10px)',
                       boxShadow: '0 4px 20px rgba(55,45,25,0.12), 0 2px 8px rgba(0,0,0,0.08)',
@@ -4014,7 +4067,11 @@ export function DeskView() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                     <button onClick={() => void handleCreateBackup()} disabled={backing}
                       style={{ height: 36, borderRadius: 10, border: 'none', background: '#829987', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                      JSON 备份
+                      JSON 元数据
+                    </button>
+                    <button onClick={() => void handleCreateFullArchive()} disabled={archiving}
+                      style={{ height: 36, borderRadius: 10, border: 'none', background: '#6F8675', color: '#fff', fontSize: 11, fontWeight: 600, cursor: archiving ? 'default' : 'pointer', opacity: archiving ? 0.65 : 1 }}>
+                      {archiving ? '归档中…' : '完整归档（含媒体）'}
                     </button>
                     <button onClick={() => void handleExportMarkdown()}
                       style={{ height: 36, borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: 'rgba(253,252,250,0.78)', color: '#666159', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
@@ -4030,7 +4087,7 @@ export function DeskView() {
                     </button>
                   </div>
                   <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
-                    选择 .json 备份文件恢复数据（不覆盖已有笔记）
+                    .kanbox 包含全部图片和视频；跨设备恢复会按修订号合并，不覆盖较新的本机修改
                   </p>
                 </div>
 

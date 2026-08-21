@@ -56,6 +56,7 @@ npm run build
 - `GET /notes`
 - `GET /workspace` / `POST /workspace` — 自定义分组与排序持久化
 - `POST /notes/import`
+- `POST /notes/import/batch` — 最多 50 条链接限流批量导入
 - `POST /notes/re-categorize` — 重新归档待整理笔记
 - `PATCH /notes/:id` — 更新标题、标签、分类
 - `DELETE /notes/:id`
@@ -71,7 +72,8 @@ npm run build
 - `GET /ai/pipeline` — AI 流水线进度
 - `GET /data/info` — 数据目录统计
 - `GET /data/integrity` / `POST /data/integrity/repair` — 完整性检查与修复
-- `POST /data/backup` / `POST /data/restore` — 备份与恢复
+- `POST /data/backup` / `POST /data/restore` — JSON 元数据备份与恢复
+- `POST /data/archive` / `POST /data/archive/restore` — 含全部图片、视频及校验清单的完整归档与恢复
 - `GET /tags` / `POST /tags/rename` / `POST /tags/delete` — 标签管理
 - `GET /setup`
 - `POST /setup/browser-extension/open`

@@ -44,6 +44,15 @@ export type ImportNoteResult = {
   created: boolean;
 };
 
+export type BatchImportResult = {
+  notes: Note[];
+  succeeded: number;
+  failed: number;
+  created: number;
+  updated: number;
+  results: Array<{ ok: boolean; id?: string; title?: string; created?: boolean; error?: string }>;
+};
+
 export type UpdateNoteResult = {
   notes: Note[];
   note: Note;
@@ -63,6 +72,9 @@ export type DeskWorkspaceSnapshot = {
   }>;
   noteGroupMap: Record<string, string>;
   knownNoteIds?: string[];
+  revision?: number;
+  updatedAt?: string;
+  updatedBy?: string;
 };
 
 export type AiSettings = {
@@ -286,6 +298,29 @@ export async function importSharedNote(input: string): Promise<ImportNoteResult>
   };
 }
 
+export async function importSharedNotes(inputs: string[]): Promise<BatchImportResult> {
+  const payload = await fetchLocalApi<{
+    notes?: RawNote[];
+    succeeded?: number;
+    failed?: number;
+    created?: number;
+    updated?: number;
+    results?: BatchImportResult['results'];
+  }>('/notes/import/batch', {
+    method: 'POST',
+    body: JSON.stringify({ inputs }),
+  }, 60 * 60_000);
+  const response = normalizeRemoteNotes(payload);
+  return {
+    notes: response.notes,
+    succeeded: payload.succeeded || 0,
+    failed: payload.failed || 0,
+    created: payload.created || 0,
+    updated: payload.updated || 0,
+    results: Array.isArray(payload.results) ? payload.results : [],
+  };
+}
+
 export async function updateNote(noteId: string, updates: { title?: string; tags?: string[]; category?: string }): Promise<UpdateNoteResult> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];
@@ -476,12 +511,15 @@ export type RestoreResult = {
   imported: number;
   skipped: number;
   total: number;
+  updated?: number;
+  kept?: number;
+  conflicts?: number;
 };
 
 export async function restoreFromBackup(file: File): Promise<RestoreResult> {
   const text = await file.text();
   const data = JSON.parse(text);
-  const payload = await fetchLocalApi<{ notes: RawNote[]; imported: number; skipped: number; total: number }>('/data/restore', {
+  const payload = await fetchLocalApi<{ notes: RawNote[]; imported: number; skipped: number; total: number; updated?: number; kept?: number; conflicts?: number }>('/data/restore', {
     method: 'POST',
     body: JSON.stringify(data),
   }, 60000);
@@ -491,6 +529,66 @@ export async function restoreFromBackup(file: File): Promise<RestoreResult> {
     imported: payload.imported || 0,
     skipped: payload.skipped || 0,
     total: response.notes.length,
+    updated: payload.updated || 0,
+    kept: payload.kept || 0,
+    conflicts: payload.conflicts || 0,
+  };
+}
+
+export async function createFullArchive(): Promise<{ ok: boolean; name: string; size: number; noteCount: number }> {
+  const result = await fetchLocalApi<{ ok: boolean; name: string; size: number; noteCount: number; downloadUrl: string }>(
+    '/data/archive',
+    { method: 'POST' },
+    24 * 60 * 60_000,
+  );
+  const anchor = document.createElement('a');
+  anchor.href = `${LOCAL_API_BASE_URL}${result.downloadUrl}`;
+  anchor.download = result.name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  return result;
+}
+
+export type FullArchiveRestoreResult = RestoreResult & {
+  added: number;
+  mediaFiles: number;
+  sourceDeviceId: string;
+};
+
+export async function restoreFullArchive(file: File): Promise<FullArchiveRestoreResult> {
+  const response = await fetch(`${LOCAL_API_BASE_URL}/data/archive/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || `完整归档恢复失败：${response.status}`);
+  }
+  const payload = await response.json() as {
+    notes?: RawNote[];
+    added?: number;
+    updated?: number;
+    kept?: number;
+    unchanged?: number;
+    conflicts?: number;
+    invalid?: number;
+    mediaFiles?: number;
+    sourceDeviceId?: string;
+  };
+  const normalized = normalizeRemoteNotes(payload);
+  return {
+    notes: normalized.notes,
+    imported: payload.added || 0,
+    added: payload.added || 0,
+    updated: payload.updated || 0,
+    kept: (payload.kept || 0) + (payload.unchanged || 0),
+    conflicts: payload.conflicts || 0,
+    skipped: payload.invalid || 0,
+    total: normalized.notes.length,
+    mediaFiles: payload.mediaFiles || 0,
+    sourceDeviceId: payload.sourceDeviceId || '',
   };
 }
 
