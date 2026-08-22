@@ -96,9 +96,9 @@ fn spawn_local_api(app: &tauri::App) -> Result<Child, String> {
                 let _ = fs::set_permissions(&node_bin, perms);
             }
         }
-        let _ = Command::new("/usr/bin/xattr")
-            .args(["-dr", "com.apple.quarantine", &node_bin])
-            .output();
+        // 不要在启动主线程里对 100MB+ 的内置 Node 运行时执行递归 xattr。
+        // 应用包已经整体签名；逐文件扫描既没有额外收益，也可能在 iCloud/文件提供器
+        // 路径上阻塞几十秒，导致用户误以为应用或资料库损坏。
     }
 
     let stdout_log = OpenOptions::new()

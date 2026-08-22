@@ -5,7 +5,8 @@ import { AppState, AppAction, Note } from '../types/xiaohongshu';
 
 const initialState: AppState = {
   notes: [],
-  isLoading: false,
+  // 首次请求结束前不能把空数组当成“新用户空库”，否则升级后服务稍慢时会误弹引导页。
+  isLoading: true,
   error: null,
 };
 

@@ -23,6 +23,7 @@ import {
   Download,
   Sparkles,
   RefreshCw,
+  CalendarDays,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -92,6 +93,7 @@ import {
   paginateTimedSegments,
 } from '../lib/video-transcript.mjs';
 import { stripDuplicateTagSuffix } from '../lib/note-content.mjs';
+import { DailyReviewDialog } from './DailyReviewDialog';
 import { filterNotesByQuery } from '../../scripts/lib/note-search.mjs';
 import {
   createDeskGroup,
@@ -1760,6 +1762,7 @@ export function DeskView() {
   const [backing, setBacking] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [showDailyReview, setShowDailyReview] = useState(false);
 
   // AI settings
   const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
@@ -1888,16 +1891,16 @@ export function DeskView() {
     });
   };
 
-  // Intentionally []: only check once on mount. notes=[] on first render means
-  // this is a genuinely new user; adding [notes] would re-trigger on every load.
+  // 只有首次资料请求明确完成且仍为空时才显示新手引导。升级后的 sidecar 启动较慢或
+  // 启动失败都不能被误判成新用户，否则会遮住已有资料与错误提示。
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (state.isLoading || state.error) return;
     const seen = localStorage.getItem('kanbox:onboarding-seen');
     if (!seen && notes.length === 0) {
       setShowOnboarding(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [notes.length, state.error, state.isLoading]);
 
   // Cleanup dismiss timers on unmount
   useEffect(() => {
@@ -2777,6 +2780,10 @@ export function DeskView() {
         setExpanded(null);
         return;
       }
+      if (showDailyReview) {
+        setShowDailyReview(false);
+        return;
+      }
       if (showPasteInput) {
         setShowPasteInput(false);
         setPasteUrl('');
@@ -2791,7 +2798,7 @@ export function DeskView() {
         return;
       }
     }
-  }, [expanded, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
+  }, [expanded, showDailyReview, showPasteInput, setupPanel, searchQuery, handleCreateGroup, handleExport]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -3060,6 +3067,25 @@ export function DeskView() {
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <motion.button
+            whileHover={{ y: -1, scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => setShowDailyReview(true)}
+            disabled={notes.length === 0}
+            title={notes.length === 0 ? '收藏内容后即可使用每日回顾' : '每天重温 5 条旧收藏'}
+            style={{
+              height: 36, padding: '0 13px', borderRadius: 15,
+              border: '1px solid rgba(184,160,106,0.2)',
+              background: 'rgba(249,244,230,0.86)', color: '#7B6840',
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11.5, fontWeight: 600, cursor: notes.length === 0 ? 'default' : 'pointer',
+              boxShadow: '0 3px 13px rgba(73,56,28,0.045)', opacity: notes.length === 0 ? 0.55 : 1,
+            }}
+            className="titlebar-no-drag"
+          >
+            <CalendarDays size={14} strokeWidth={1.8} />
+            每日回顾
+          </motion.button>
           {([
             ['extension', t('plugin'), Puzzle],
             ['agent', 'Agent', Bot],
@@ -3160,7 +3186,7 @@ export function DeskView() {
             }}
             className="titlebar-no-drag"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
@@ -3168,6 +3194,19 @@ export function DeskView() {
           </motion.button>
         </div>
       </header>
+
+      <AnimatePresence>
+        {showDailyReview && (
+          <DailyReviewDialog
+            notes={notes}
+            onClose={() => setShowDailyReview(false)}
+            onOpenNote={(note) => {
+              setShowDailyReview(false);
+              setExpanded(note);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {setupPanel && (

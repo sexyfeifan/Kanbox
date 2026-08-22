@@ -97,4 +97,4 @@ jobs:
         with:
           draft: false
           prerelease: false
-          release_id: ${{ needs.create-release.outputs.release_id }}
+          tag_name: ${{ github.ref_name }}

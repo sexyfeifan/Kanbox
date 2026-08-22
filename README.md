@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.2-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.3-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,13 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.3 更新
+
+- **每日回顾正式上线** — 首页新增清晰可见的「每日回顾」入口，每天稳定抽取 5 条旧收藏；支持进度保存、前后切换、打开完整阅读与当日完成状态
+- **升级后资料重新可见** — 修复 v0.8.2 安装包漏打包后台模块导致本地服务无法启动、界面误显示空库的问题；原有本机与 iCloud 数据文件不会被覆盖
+- **发布防回归** — 新增安装包资源完整性自动测试，逐项核对本地服务的模块依赖，阻止漏文件版本再次发布
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema 与安装包统一升至 v0.8.3
 
 ## 🆕 v0.8.2 更新
 
