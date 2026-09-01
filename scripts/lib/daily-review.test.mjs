@@ -42,6 +42,16 @@ test('历史上的今天优先于普通旧收藏', () => {
   assert.equal(selectDailyReviewNotes([old, anniversary], { now, count: 1 })[0].id, 'anniversary');
 });
 
+test('每日回顾优先稍后阅读与未读内容', () => {
+  const now = new Date(2026, 8, 1, 10);
+  const items = [
+    { id: 'read', savedAt: new Date(2024, 7, 1), readState: 'read' },
+    { id: 'unread', savedAt: new Date(2024, 7, 1), readState: 'unread' },
+    { id: 'later', savedAt: new Date(2024, 7, 1), readState: 'later' },
+  ];
+  assert.deepEqual(selectDailyReviewNotes(items, { now, count: 3 }).map((note) => note.id), ['later', 'unread', 'read']);
+});
+
 test('回顾进度、稍后复习与完成统计持久化', () => {
   const now = new Date(2026, 8, 1, 10);
   const initial = buildDailyReview(notes, { settings: { count: 3 } }, { now });

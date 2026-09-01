@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.6-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.7-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,16 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.7 更新
+
+- **收藏与阅读状态** — 每条笔记支持收藏、未读、已读和稍后阅读，状态直接写入 `notes.json` 并参与现有修订与跨设备冲突合并
+- **卡片与阅读器快捷操作** — 卡片可一键收藏；打开详情自动标为已读，阅读器中可收藏或加入稍后阅读
+- **状态筛选** — 首页新增收藏、未读、稍后阅读筛选，与全文搜索和分类筛选组合使用
+- **批量整理** — 批量模式支持批量收藏、加入稍后阅读和标为已读，单次原子写回并保留失败反馈
+- **每日回顾联动** — 稍后阅读和未读内容优先进入每日回顾；回顾中选择“已回顾”或“稍后复习”会同步更新笔记状态
+- **重导入不丢状态** — 同一笔记重新采集时保留收藏、阅读状态和最近阅读时间，旧资料缺少字段时按未读兼容
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.7
 
 ## 🆕 v0.8.6 更新
 

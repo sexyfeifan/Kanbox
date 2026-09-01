@@ -47,6 +47,9 @@ export interface Note {
   revision?: number;
   syncConflict?: boolean;
   syncConflictFields?: string[];
+  favorite?: boolean;
+  readState?: 'unread' | 'read' | 'later';
+  lastReadAt?: string;
   tags: string[];
   type?: 'video' | 'normal';
   imageAspect?: 'tall' | 'medium' | 'short' | 'normal';

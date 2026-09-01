@@ -87,6 +87,8 @@ export function selectDailyReviewNotes(notes, { now = new Date(), count = 5, sta
 
   const score = (note) => stableHash(`${key}:${note.id}`);
   const sort = (left, right) => {
+    const priority = (note) => note?.readState === 'later' ? 0 : (note?.readState || 'unread') === 'unread' ? 1 : 2;
+    if (priority(left) !== priority(right)) return priority(left) - priority(right);
     const leftReview = previousReviewAt.get(left.id) || '';
     const rightReview = previousReviewAt.get(right.id) || '';
     if (leftReview !== rightReview) return leftReview.localeCompare(rightReview);

@@ -286,7 +286,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.6';
+const BACKUP_VERSION = '0.8.7';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -626,6 +626,8 @@ async function updateDailyReviewSettings(count) {
 async function updateDailyReviewAction(action) {
   const [notes, state] = await Promise.all([readNotes(), readDailyReviewState()]);
   const built = applyDailyReviewAction(notes, state, action);
+  if (action?.type === 'reviewed') await batchUpdateNoteStatus([action.noteId], { readState: 'read' });
+  if (action?.type === 'later') await batchUpdateNoteStatus([action.noteId], { readState: 'later' });
   await writeDailyReviewState(built.state);
   return built.review;
 }
@@ -1296,6 +1298,11 @@ async function updateNote(noteId, updates = {}) {
   if (Array.isArray(updates.tags)) {
     updated.tags = [...new Set(updates.tags.map(t => String(t || '').trim()).filter(Boolean).slice(0, 20))];
   }
+  if (typeof updates.favorite === 'boolean') updated.favorite = updates.favorite;
+  if (['unread', 'read', 'later'].includes(updates.readState)) {
+    updated.readState = updates.readState;
+    if (updates.readState === 'read') updated.lastReadAt = new Date().toISOString();
+  }
 
   // 分类：显式传入（拖拽到某个分类分组）时以传入值为准，否则按内容重新推断。
   // 之前这里无条件 inferCategoryFromNote，会吞掉前端拖拽改分类的意图——拖到新分类刷新后又弹回原分类。
@@ -1320,6 +1327,31 @@ async function updateNote(noteId, updates = {}) {
 
 function queueNoteUpdate(noteId, updates) {
   return queueMutation(() => updateNote(noteId, updates));
+}
+
+async function batchUpdateNoteStatus(ids, updates) {
+  const requested = new Set((Array.isArray(ids) ? ids : []).filter((id) => /^[0-9a-f]{24}$/i.test(String(id))).map((id) => String(id).toLowerCase()).slice(0, 100_000));
+  if (requested.size === 0) throw new Error('请选择需要更新的笔记');
+  const allowed = {};
+  if (typeof updates?.favorite === 'boolean') allowed.favorite = updates.favorite;
+  if (['unread', 'read', 'later'].includes(updates?.readState)) allowed.readState = updates.readState;
+  if (Object.keys(allowed).length === 0) throw new Error('没有可更新的状态');
+  const notes = await readNotes();
+  const { deviceId } = await getSyncState();
+  const now = new Date().toISOString();
+  let updatedCount = 0;
+  const next = notes.map((note) => {
+    if (!requested.has(note.id)) return note;
+    updatedCount += 1;
+    return stampRecord({
+      ...note,
+      ...allowed,
+      ...(allowed.readState === 'read' ? { lastReadAt: now } : {}),
+    }, { deviceId });
+  });
+  await writeNotes(next);
+  broadcastUpdate({ type: 'notes-changed', timestamp: now });
+  return { notes: next, updatedCount };
 }
 
 function queueMutation(callback) {
@@ -2099,6 +2131,13 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/ai/pipeline') {
       sendJson(request, response, 200, { ok: true, ...getPipelineStatus() });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/notes/batch-status') {
+      const body = await readRequestBody(request, 5 * 1024 * 1024);
+      const result = await queueMutation(() => batchUpdateNoteStatus(body?.ids, body?.updates));
+      sendJson(request, response, 200, { ok: true, ...result });
       return;
     }
 

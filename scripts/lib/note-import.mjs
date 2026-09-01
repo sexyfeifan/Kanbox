@@ -265,6 +265,9 @@ export function mergeImportedNote(existingNotes, importedNote) {
     aiSummaryEngine: existing?.aiSummaryEngine ?? importedNote.aiSummaryEngine,
     aiExpansion: existing?.aiExpansion ?? importedNote.aiExpansion,
     savedAt: existing?.savedAt ?? importedNote.savedAt,
+    favorite: existing?.favorite ?? importedNote.favorite ?? false,
+    readState: existing?.readState ?? importedNote.readState ?? 'unread',
+    lastReadAt: existing?.lastReadAt ?? importedNote.lastReadAt,
   };
 
   const notes = [...safeExistingNotes];

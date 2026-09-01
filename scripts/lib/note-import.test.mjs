@@ -92,6 +92,9 @@ test('mergeImportedNote preserves manual curation on re-import (P1#1)', () => {
     tags: ['手动标签'],
     aiSummary: '已生成的摘要',
     aiExpansion: '已生成的拓展',
+    favorite: true,
+    readState: 'later',
+    lastReadAt: '2026-02-01T00:00:00.000Z',
     savedAt: '2026-01-01T00:00:00.000Z',
   };
   // 重新导入「刷新内容」：只更新内容性字段，category/tags/AI/savedAt 都要保留
@@ -111,6 +114,9 @@ test('mergeImportedNote preserves manual curation on re-import (P1#1)', () => {
   assert.equal(merged.aiSummary, '已生成的摘要');          // AI 摘要保留
   assert.equal(merged.aiExpansion, '已生成的拓展');        // AI 拓展保留
   assert.equal(merged.savedAt, '2026-01-01T00:00:00.000Z'); // 首次收录时间不顶到最前
+  assert.equal(merged.favorite, true);                       // 收藏状态保留
+  assert.equal(merged.readState, 'later');                   // 阅读状态保留
+  assert.equal(merged.lastReadAt, '2026-02-01T00:00:00.000Z');
 });
 
 test('mergeImportedNote re-infers category when old value is transient', () => {

@@ -91,6 +91,17 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(partialBatch.failed, 1);
     assert.equal(partialBatch.notes.length, 12, '单条失败不应回滚或重复整批数据');
 
+    const singleStatus = await jsonRequest(baseUrl, `/notes/${items[0].note.id}`, {
+      method: 'PATCH', body: JSON.stringify({ favorite: true, readState: 'later' }),
+    });
+    assert.equal(singleStatus.note.favorite, true);
+    assert.equal(singleStatus.note.readState, 'later');
+    const batchStatus = await jsonRequest(baseUrl, '/notes/batch-status', {
+      method: 'POST', body: JSON.stringify({ ids: [items[1].note.id, items[2].note.id], updates: { readState: 'read' } }),
+    });
+    assert.equal(batchStatus.updatedCount, 2);
+    assert.equal(batchStatus.notes.filter((note) => [items[1].note.id, items[2].note.id].includes(note.id)).every((note) => note.readState === 'read' && note.lastReadAt), true);
+
     const initialReview = await jsonRequest(baseUrl, '/daily-review');
     assert.equal(initialReview.review.items.length, 5);
     const configuredReview = await jsonRequest(baseUrl, '/daily-review/settings', {

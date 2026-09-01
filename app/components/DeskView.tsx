@@ -24,6 +24,9 @@ import {
   Sparkles,
   RefreshCw,
   CalendarDays,
+  Star,
+  Clock3,
+  Circle,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -63,6 +66,7 @@ import {
   testAiConnection,
   testTranscribeConnection,
   batchProcessAi,
+  batchUpdateNoteStatus,
   subscribeToPipeline,
   getStorageInfo,
   discoverLibraries,
@@ -313,7 +317,7 @@ function ExpandedCard({
   note: Note;
   onClose: () => void;
   onDelete: () => void;
-  onUpdate: (updates: { title?: string; tags?: string[] }) => void;
+  onUpdate: (updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later' }) => void;
   onTranscribe: () => Promise<void>;
   onNoteChanged: (note: Note) => void;
   isDeleting: boolean;
@@ -582,6 +586,18 @@ function ExpandedCard({
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
               {note.category}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+              <button type="button" onClick={() => onUpdate({ favorite: !note.favorite })} title={note.favorite ? '取消收藏' : '加入收藏'} style={{
+                width: 30, height: 30, borderRadius: 10, border: '1px solid rgba(73,56,28,0.08)',
+                background: note.favorite ? 'rgba(184,160,106,0.16)' : '#F4F1EB', color: note.favorite ? '#9A7938' : '#8C8780',
+                display: 'grid', placeItems: 'center', cursor: 'pointer',
+              }}><Star size={14} fill={note.favorite ? 'currentColor' : 'none'} /></button>
+              <button type="button" onClick={() => onUpdate({ readState: note.readState === 'later' ? 'read' : 'later' })} title={note.readState === 'later' ? '移出稍后阅读' : '稍后阅读'} style={{
+                height: 30, padding: '0 9px', borderRadius: 10, border: '1px solid rgba(73,56,28,0.08)',
+                background: note.readState === 'later' ? 'rgba(130,153,135,0.15)' : '#F4F1EB', color: note.readState === 'later' ? '#536B59' : '#8C8780',
+                display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 10.5,
+              }}><Clock3 size={13} />稍后</button>
             </div>
             {confirmingDelete ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1254,7 +1270,7 @@ function ExpandedCard({
 
 // ── Individual card with breathe animation ────────────────────────────────────
 function DeskCard({
-  note, pos, isDimmed, lightweight, onClick, onDragStart, onDragEnd, batchMode, isSelected, onToggleSelect
+  note, pos, isDimmed, lightweight, onClick, onDragStart, onDragEnd, batchMode, isSelected, onToggleSelect, onToggleFavorite
 }: {
   note: Note;
   pos: Pos;
@@ -1266,6 +1282,7 @@ function DeskCard({
   batchMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  onToggleFavorite?: () => void;
 }) {
   const color = catColor(note.category);
   const [hovered, setHovered] = useState(false);
@@ -1378,6 +1395,14 @@ function DeskCard({
               }}>
                 {isSelected && <Check size={14} strokeWidth={2.5} color="#fff" />}
               </div>
+            )}
+            {!batchMode && (
+              <button type="button" aria-label={note.favorite ? '取消收藏' : '加入收藏'} title={note.favorite ? '取消收藏' : '加入收藏'} onClick={(event) => { event.stopPropagation(); onToggleFavorite?.(); }} style={{
+                position: 'absolute', right: 7, bottom: 7, width: 24, height: 24, borderRadius: 999,
+                border: 'none', background: note.favorite ? 'rgba(249,244,230,0.94)' : 'rgba(42,40,36,0.58)',
+                color: note.favorite ? '#A17D35' : '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer',
+                opacity: note.favorite || hovered ? 1 : 0, transition: 'opacity 0.15s', zIndex: 3,
+              }}><Star size={12} fill={note.favorite ? 'currentColor' : 'none'} /></button>
             )}
             {isNewNote(note.savedAt) && !note.type && (
               <span style={{
@@ -1746,6 +1771,7 @@ export function DeskView() {
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'favorite' | 'unread' | 'later'>('all');
   const [setupPanel, setSetupPanel] = useState<SetupPanel | null>(null);
   const [setupInfo, setSetupInfo] = useState<LocalSetupInfo | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -2094,11 +2120,15 @@ export function DeskView() {
         (note: Note) => groupNameById.get(deskState.noteGroupMap?.[note.id] || 'inbox') || '',
       ) as Note[];
       const afterCategory = categoryFilter ? filtered.filter((note) => note.category === categoryFilter) : filtered;
-      return sortNotes(afterCategory);
+      const afterStatus = statusFilter === 'favorite' ? afterCategory.filter((note) => note.favorite)
+        : statusFilter === 'unread' ? afterCategory.filter((note) => (note.readState || 'unread') === 'unread')
+          : statusFilter === 'later' ? afterCategory.filter((note) => note.readState === 'later')
+            : afterCategory;
+      return sortNotes(afterStatus);
     },
-    [notes, searchQuery, categoryFilter, groupNameById, deskState.noteGroupMap, sortNotes],
+    [notes, searchQuery, categoryFilter, statusFilter, groupNameById, deskState.noteGroupMap, sortNotes],
   );
-  const hasActiveSearch = searchQuery.trim().length > 0 || categoryFilter !== null;
+  const hasActiveSearch = searchQuery.trim().length > 0 || categoryFilter !== null || statusFilter !== 'all';
   const org = useMemo(
     () => buildOrganized(
       visibleNotes,
@@ -2299,15 +2329,45 @@ export function DeskView() {
     }
   };
 
-  const handleUpdateNote = async (noteId: string, updates: { title?: string; tags?: string[] }) => {
+  const handleUpdateNote = async (noteId: string, updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later' }, keepExpanded = true) => {
     try {
       const result = await updateNote(noteId, updates);
       setNotes(result.notes);
-      setExpanded(result.note);
+      if (keepExpanded) setExpanded(result.note);
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : '保存失败';
       setImportFeedback({ phase: 'error', title: '没有保存成功', message });
       dismissImportFeedback('error', 3200);
+    }
+  };
+
+  useEffect(() => {
+    if (!expanded || expanded.readState === 'read') return;
+    let cancelled = false;
+    void updateNote(expanded.id, { readState: 'read' }).then((result) => {
+      if (cancelled) return;
+      setNotes(result.notes);
+      setExpanded(result.note);
+    }).catch((error) => console.error('已读状态保存失败:', error));
+    return () => { cancelled = true; };
+  }, [expanded, setNotes]);
+
+  const handleBatchStatus = async (updates: { favorite?: boolean; readState?: 'unread' | 'read' | 'later' }) => {
+    if (batchProcessing || selectedNoteIds.size === 0) return;
+    setBatchProcessing(true);
+    try {
+      const result = await batchUpdateNoteStatus(Array.from(selectedNoteIds), updates);
+      setNotes(result.notes);
+      setSelectedNoteIds(new Set());
+      setBatchMode(false);
+      setImportFeedback({ phase: 'complete', title: `已更新 ${result.updatedCount} 条`, message: '收藏与阅读状态已保存' });
+      dismissImportFeedback('complete', 1800);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : '批量状态更新失败';
+      setImportFeedback({ phase: 'error', title: '批量更新失败', message });
+      dismissImportFeedback('error', 3200);
+    } finally {
+      setBatchProcessing(false);
     }
   };
 
@@ -3377,13 +3437,29 @@ export function DeskView() {
       </AnimatePresence>
 
       {/* ── Category filter chips ── */}
-      {categories.length > 0 && (
+      {notes.length > 0 && (
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 6,
           padding: '0 20px 10px',
           paddingLeft: `${20 + TITLEBAR_SAFE_LEFT}px`,
           position: 'relative', zIndex: 99,
         }}>
+          {([
+            ['all', '全部', Circle],
+            ['favorite', '收藏', Star],
+            ['unread', '未读', BookOpen],
+            ['later', '稍后阅读', Clock3],
+          ] as const).map(([key, label, Icon]) => {
+            const active = statusFilter === key;
+            return (
+              <button key={key} type="button" onClick={() => setStatusFilter(key)} className="titlebar-no-drag" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: 'none',
+                background: active ? '#6E806F' : 'rgba(253,252,250,0.78)', color: active ? '#fff' : '#666159',
+                fontSize: 10.5, fontWeight: 600, cursor: 'pointer', boxShadow: active ? '0 2px 8px rgba(55,45,25,0.1)' : 'none',
+              }}><Icon size={11} fill={key === 'favorite' && active ? 'currentColor' : 'none'} />{label}</button>
+            );
+          })}
+          <span style={{ width: 1, background: 'rgba(73,56,28,0.1)', margin: '1px 2px' }} />
           <button
             type="button"
             onClick={() => setCategoryFilter(null)}
@@ -3397,7 +3473,7 @@ export function DeskView() {
               transition: 'background 0.15s, color 0.15s',
             }}
           >
-            {t('all')}
+            所有分类
           </button>
           {categories.map((cat) => {
             const c = catColor(cat);
@@ -3825,6 +3901,7 @@ export function DeskView() {
               batchMode={batchMode}
               isSelected={selectedNoteIds.has(note.id)}
               onToggleSelect={() => toggleNoteSelection(note.id)}
+              onToggleFavorite={() => void handleUpdateNote(note.id, { favorite: !note.favorite }, false)}
             />
           );
         })}
@@ -4061,6 +4138,18 @@ export function DeskView() {
               <span style={{ fontSize: 13, fontWeight: 500, color: '#454248' }}>
                 已选 {selectedNoteIds.size} 条
               </span>
+              <button onClick={() => void handleBatchStatus({ favorite: true })} disabled={batchProcessing} style={{
+                display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 12,
+                border: 'none', background: 'rgba(184,160,106,0.14)', color: '#8A6C32', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}><Star size={14} />收藏</button>
+              <button onClick={() => void handleBatchStatus({ readState: 'later' })} disabled={batchProcessing} style={{
+                display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 12,
+                border: 'none', background: 'rgba(130,153,135,0.14)', color: '#536B59', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}><Clock3 size={14} />稍后阅读</button>
+              <button onClick={() => void handleBatchStatus({ readState: 'read' })} disabled={batchProcessing} style={{
+                display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 12,
+                border: 'none', background: 'rgba(86,112,130,0.11)', color: '#526B78', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}><Check size={14} />标为已读</button>
               <button onClick={async () => {
                 if (batchProcessing) return;
                 setBatchProcessing(true);

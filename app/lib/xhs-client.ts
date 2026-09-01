@@ -321,7 +321,13 @@ export async function importSharedNotes(inputs: string[]): Promise<BatchImportRe
   };
 }
 
-export async function updateNote(noteId: string, updates: { title?: string; tags?: string[]; category?: string }): Promise<UpdateNoteResult> {
+export async function updateNote(noteId: string, updates: {
+  title?: string;
+  tags?: string[];
+  category?: string;
+  favorite?: boolean;
+  readState?: 'unread' | 'read' | 'later';
+}): Promise<UpdateNoteResult> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];
     note?: RawNote;
@@ -828,6 +834,17 @@ export async function updateDailyReview(
     method: 'POST', body: JSON.stringify({ type, noteId }),
   }, 8000);
   return payload.review;
+}
+
+export async function batchUpdateNoteStatus(
+  ids: string[],
+  updates: { favorite?: boolean; readState?: 'unread' | 'read' | 'later' },
+): Promise<{ notes: Note[]; updatedCount: number }> {
+  const payload = await fetchLocalApi<{ ok: boolean; notes: RawNote[]; updatedCount: number }>('/notes/batch-status', {
+    method: 'POST', body: JSON.stringify({ ids, updates }),
+  }, 60_000);
+  const normalized = normalizeRemoteNotes(payload);
+  return { notes: normalized.notes, updatedCount: payload.updatedCount };
 }
 
 // ─── 存储位置 ─────────────────────────────────────────────────────────────────
