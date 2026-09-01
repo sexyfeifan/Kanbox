@@ -286,7 +286,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.8';
+const BACKUP_VERSION = '0.8.9';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -415,6 +415,19 @@ async function recordNoteTombstone(note) {
     updatedAt: new Date().toISOString(),
     updatedBy: deviceId,
   };
+  await writeSyncMeta(meta);
+}
+
+async function recordNoteTombstones(notes) {
+  const [{ deviceId }, meta] = await Promise.all([getSyncState(), readSyncMeta()]);
+  const updatedAt = new Date().toISOString();
+  for (const note of notes) {
+    meta.tombstones[note.id] = {
+      revision: (Number(note.revision) || 1) + 1,
+      updatedAt,
+      updatedBy: deviceId,
+    };
+  }
   await writeSyncMeta(meta);
 }
 
@@ -1354,6 +1367,62 @@ async function batchUpdateNoteStatus(ids, updates) {
   return { notes: next, updatedCount };
 }
 
+function requestedNoteIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error('请选择需要整理的笔记');
+  if (ids.length > 100_000) throw new Error('一次最多整理 100000 条笔记');
+  const normalized = ids.map((id) => String(id || '').toLowerCase());
+  if (normalized.some((id) => !/^[0-9a-f]{24}$/i.test(id))) throw new Error('批量操作包含无效笔记 ID');
+  return new Set(normalized);
+}
+
+function normalizeBatchTags(value) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map((tag) => String(tag || '').replace(/\s+/g, ' ').trim().slice(0, 50))
+    .filter(Boolean))].slice(0, 20);
+}
+
+async function batchOrganizeNotes(ids, updates = {}) {
+  const requested = requestedNoteIds(ids);
+  const addTags = normalizeBatchTags(updates.addTags);
+  const removeTags = new Set(normalizeBatchTags(updates.removeTags));
+  const category = typeof updates.category === 'string' ? updates.category.replace(/\s+/g, ' ').trim().slice(0, 50) : '';
+  if (addTags.length === 0 && removeTags.size === 0 && !category) throw new Error('请选择标签或分类整理操作');
+  const notes = await readNotes();
+  const found = new Set(notes.filter((note) => requested.has(note.id)).map((note) => note.id));
+  if (found.size !== requested.size) throw new Error(`有 ${requested.size - found.size} 条笔记不存在，未执行批量整理`);
+  const { deviceId } = await getSyncState();
+  let updatedCount = 0;
+  const next = notes.map((note) => {
+    if (!requested.has(note.id)) return note;
+    const tags = [...new Set([
+      ...(Array.isArray(note.tags) ? note.tags : []).filter((tag) => !removeTags.has(tag)),
+      ...addTags.filter((tag) => !removeTags.has(tag)),
+    ])].slice(0, 20);
+    updatedCount += 1;
+    return stampRecord({ ...note, tags, ...(category ? { category } : {}) }, { deviceId });
+  });
+  await writeNotes(next);
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  return { notes: next, updatedCount };
+}
+
+async function batchDeleteNotes(ids) {
+  const requested = requestedNoteIds(ids);
+  const notes = await readNotes();
+  const deletedNotes = notes.filter((note) => requested.has(note.id));
+  if (deletedNotes.length !== requested.size) throw new Error(`有 ${requested.size - deletedNotes.length} 条笔记不存在，未执行批量删除`);
+  const next = notes.filter((note) => !requested.has(note.id));
+  await recordNoteTombstones(deletedNotes);
+  if (path.resolve(dataDirectory) !== path.resolve(legacyDataDirectory) && existsSync(legacyNotesFilePath)) {
+    const legacyNotes = await readNotesFile(legacyNotesFilePath);
+    await writeLegacyNotes(legacyNotes.filter((note) => !requested.has(note.id)));
+  }
+  await writeNotes(next);
+  await Promise.allSettled(deletedNotes.map((note) => rm(path.join(mediaDirectory, note.id), { recursive: true, force: true })));
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  return { notes: next, deletedCount: deletedNotes.length, deletedIds: deletedNotes.map((note) => note.id) };
+}
+
 function queueMutation(callback) {
   const result = mutationQueue.then(callback);
   mutationQueue = result.catch(() => undefined);
@@ -2137,6 +2206,25 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/notes/batch-status') {
       const body = await readRequestBody(request, 5 * 1024 * 1024);
       const result = await queueMutation(() => batchUpdateNoteStatus(body?.ids, body?.updates));
+      sendJson(request, response, 200, { ok: true, ...result });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/notes/batch-organize') {
+      const body = await readRequestBody(request, 5 * 1024 * 1024);
+      const result = await queueMutation(() => batchOrganizeNotes(body?.ids, body?.updates));
+      sendJson(request, response, 200, { ok: true, ...result });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/notes/batch-delete') {
+      const deleteOrigin = request.headers.origin;
+      if (deleteOrigin && deleteOrigin.startsWith('chrome-extension://')) {
+        sendJson(request, response, 403, { ok: false, error: '浏览器扩展不允许删除笔记' });
+        return;
+      }
+      const body = await readRequestBody(request, 5 * 1024 * 1024);
+      const result = await queueMutation(() => batchDeleteNotes(body?.ids));
       sendJson(request, response, 200, { ok: true, ...result });
       return;
     }

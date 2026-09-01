@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.8-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.9-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.9 更新
+
+- **批量标签整理** — 批量模式可为当前选择添加或移除多个标签，自动去重、限制长度，并以“移除优先”处理同名冲突
+- **批量统一分类** — 可一次将选中笔记归入同一分类，每条记录都更新跨设备修订信息
+- **全选当前结果** — 一键选择当前搜索、智能视图和分类筛选后的全部结果，不会误选被筛掉的笔记
+- **原子批量写入** — 标签和分类在校验全部 ID 后单次原子写回；遇到无效或已不存在的笔记整批拒绝，不产生部分修改
+- **安全批量删除** — 批量删除改为一次性写回，并为每条笔记记录跨设备删除墓碑；媒体清理失败不影响删除记录完整性
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.9
 
 ## 🆕 v0.8.8 更新
 

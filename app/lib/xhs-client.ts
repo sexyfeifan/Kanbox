@@ -348,6 +348,20 @@ export async function updateNote(noteId: string, updates: {
   return { notes, note };
 }
 
+export async function batchOrganizeNotes(ids: string[], updates: { addTags?: string[]; removeTags?: string[]; category?: string }): Promise<{ notes: Note[]; updatedCount: number }> {
+  const payload = await fetchLocalApi<{ notes?: RawNote[]; updatedCount?: number }>('/notes/batch-organize', {
+    method: 'POST', body: JSON.stringify({ ids, updates }),
+  });
+  return { notes: normalizeRemoteNotes(payload).notes, updatedCount: payload.updatedCount || 0 };
+}
+
+export async function batchDeleteNotes(ids: string[]): Promise<{ notes: Note[]; deletedCount: number }> {
+  const payload = await fetchLocalApi<{ notes?: RawNote[]; deletedCount?: number }>('/notes/batch-delete', {
+    method: 'POST', body: JSON.stringify({ ids }),
+  });
+  return { notes: normalizeRemoteNotes(payload).notes, deletedCount: payload.deletedCount || 0 };
+}
+
 export async function reCategorizeNotes(): Promise<{ notes: Note[]; reclassified: number; remaining: number }> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];

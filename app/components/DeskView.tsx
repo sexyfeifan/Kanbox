@@ -42,7 +42,6 @@ import {
   formatDate,
   getLocalServiceHealth,
   getLocalSetupInfo,
-  getNotes,
   getDeskWorkspace,
   saveDeskWorkspace,
   importSharedNote,
@@ -69,6 +68,8 @@ import {
   testTranscribeConnection,
   batchProcessAi,
   batchUpdateNoteStatus,
+  batchOrganizeNotes,
+  batchDeleteNotes,
   subscribeToPipeline,
   getStorageInfo,
   discoverLibraries,
@@ -1787,6 +1788,8 @@ export function DeskView() {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'lastRead'>('newest');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [batchTagDraft, setBatchTagDraft] = useState('');
+  const [batchCategoryDraft, setBatchCategoryDraft] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [dataInfo, setDataInfo] = useState<{ dataDirectory: string; notesCount: number; mediaSize: number; backupCount: number } | null>(null);
   const [integrityResult, setIntegrityResult] = useState<{ totalNotes: number; healthyNotes: number; brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }> } | null>(null);
@@ -2351,6 +2354,28 @@ export function DeskView() {
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : '批量状态更新失败';
       setImportFeedback({ phase: 'error', title: '批量更新失败', message });
+      dismissImportFeedback('error', 3200);
+    } finally {
+      setBatchProcessing(false);
+    }
+  };
+
+  const handleBatchOrganize = async (mode: 'addTag' | 'removeTag' | 'category') => {
+    if (batchProcessing || selectedNoteIds.size === 0) return;
+    const tags = batchTagDraft.split(/[,，\n]+/).map((tag) => tag.trim()).filter(Boolean);
+    const updates = mode === 'addTag' ? { addTags: tags }
+      : mode === 'removeTag' ? { removeTags: tags }
+        : { category: batchCategoryDraft };
+    setBatchProcessing(true);
+    try {
+      const result = await batchOrganizeNotes(Array.from(selectedNoteIds), updates);
+      setNotes(result.notes);
+      setBatchTagDraft('');
+      setBatchCategoryDraft('');
+      setImportFeedback({ phase: 'complete', title: `已整理 ${result.updatedCount} 条`, message: mode === 'category' ? '分类已统一更新' : '标签已批量更新' });
+      dismissImportFeedback('complete', 2000);
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: '批量整理失败', message: error instanceof Error ? error.message : '请重试' });
       dismissImportFeedback('error', 3200);
     } finally {
       setBatchProcessing(false);
@@ -4114,7 +4139,10 @@ export function DeskView() {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 14,
+              gap: 10,
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              maxWidth: 'calc(100vw - 48px)',
               padding: '12px 20px',
               borderRadius: 20,
               background: 'rgba(253,252,250,0.95)',
@@ -4127,6 +4155,9 @@ export function DeskView() {
               <span style={{ fontSize: 13, fontWeight: 500, color: '#454248' }}>
                 已选 {selectedNoteIds.size} 条
               </span>
+              <button onClick={() => setSelectedNoteIds(new Set(visibleNotes.map((note) => note.id)))} disabled={batchProcessing} style={{
+                height: 32, padding: '0 10px', borderRadius: 10, border: '1px solid rgba(73,56,28,0.08)', background: 'transparent', color: '#666159', fontSize: 11, cursor: 'pointer',
+              }}>全选当前 {visibleNotes.length} 条</button>
               <button onClick={() => void handleBatchStatus({ favorite: true })} disabled={batchProcessing} style={{
                 display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 12,
                 border: 'none', background: 'rgba(184,160,106,0.14)', color: '#8A6C32', fontSize: 12, fontWeight: 600, cursor: 'pointer',
@@ -4139,20 +4170,29 @@ export function DeskView() {
                 display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 12,
                 border: 'none', background: 'rgba(86,112,130,0.11)', color: '#526B78', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               }}><Check size={14} />标为已读</button>
+              <input value={batchTagDraft} onChange={(event) => setBatchTagDraft(event.target.value)} placeholder="标签，多个用逗号"
+                disabled={batchProcessing} style={{ width: 130, height: 34, padding: '0 10px', borderRadius: 10, border: '1px solid rgba(73,56,28,0.1)', background: '#fff', fontSize: 11 }} />
+              <button onClick={() => void handleBatchOrganize('addTag')} disabled={batchProcessing || !batchTagDraft.trim()} style={{
+                height: 34, padding: '0 10px', borderRadius: 10, border: 'none', background: 'rgba(130,153,135,0.14)', color: '#536B59', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>添加标签</button>
+              <button onClick={() => void handleBatchOrganize('removeTag')} disabled={batchProcessing || !batchTagDraft.trim()} style={{
+                height: 34, padding: '0 10px', borderRadius: 10, border: 'none', background: 'rgba(181,106,91,0.1)', color: '#A85F52', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>移除标签</button>
+              <input value={batchCategoryDraft} onChange={(event) => setBatchCategoryDraft(event.target.value)} placeholder="统一分类"
+                disabled={batchProcessing} style={{ width: 100, height: 34, padding: '0 10px', borderRadius: 10, border: '1px solid rgba(73,56,28,0.1)', background: '#fff', fontSize: 11 }} />
+              <button onClick={() => void handleBatchOrganize('category')} disabled={batchProcessing || !batchCategoryDraft.trim()} style={{
+                height: 34, padding: '0 10px', borderRadius: 10, border: 'none', background: 'rgba(86,112,130,0.11)', color: '#526B78', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>设置分类</button>
               <button onClick={async () => {
                 if (batchProcessing) return;
                 setBatchProcessing(true);
                 try {
-                  const ids = Array.from(selectedNoteIds);
-                  for (const id of ids) {
-                    try {
-                      await deleteStoredNote(id);
-                    } catch { /* individual delete failure is non-fatal */ }
-                  }
-                  const result = await getNotes();
-                  setNotes(result);
+                  const result = await batchDeleteNotes(Array.from(selectedNoteIds));
+                  setNotes(result.notes);
                   setSelectedNoteIds(new Set());
                   setBatchMode(false);
+                  setImportFeedback({ phase: 'complete', title: `已删除 ${result.deletedCount} 条`, message: '删除记录已写入跨设备同步墓碑' });
+                  dismissImportFeedback('complete', 2000);
                 } catch (error) {
                   const message = error instanceof Error && error.message ? error.message : '批量删除失败';
                   setImportFeedback({ phase: 'error', title: '批量删除失败', message });

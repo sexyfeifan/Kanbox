@@ -101,7 +101,16 @@ test('local API batch import and full media archive restore work end to end', { 
     });
     assert.equal(batchStatus.updatedCount, 2);
     assert.equal(batchStatus.notes.filter((note) => [items[1].note.id, items[2].note.id].includes(note.id)).every((note) => note.readState === 'read' && note.lastReadAt), true);
-
+    const organized = await jsonRequest(baseUrl, '/notes/batch-organize', {
+      method: 'POST', body: JSON.stringify({ ids: [items[0].note.id, items[1].note.id], updates: { addTags: ['待读', '共同'], removeTags: ['共同'], category: '批量整理' } }),
+    });
+    assert.equal(organized.updatedCount, 2);
+    assert.equal(organized.notes.filter((note) => [items[0].note.id, items[1].note.id].includes(note.id)).every((note) => note.category === '批量整理' && note.tags.includes('待读') && !note.tags.includes('共同')), true);
+    await assert.rejects(() => jsonRequest(baseUrl, '/notes/batch-organize', {
+      method: 'POST', body: JSON.stringify({ ids: [items[0].note.id, 'aaaaaaaaaaaaaaaaaaaaaaaa'], updates: { addTags: ['不应写入'] } }),
+    }), /不存在/);
+    const afterRejectedOrganize = await jsonRequest(baseUrl, '/notes');
+    assert.equal(afterRejectedOrganize.notes.some((note) => note.tags.includes('不应写入')), false, '批量整理校验失败时不得部分写入');
     const initialReview = await jsonRequest(baseUrl, '/daily-review');
     assert.equal(initialReview.review.items.length, 5);
     const configuredReview = await jsonRequest(baseUrl, '/daily-review/settings', {
@@ -151,6 +160,12 @@ test('local API batch import and full media archive restore work end to end', { 
     const restoredReview = await jsonRequest(baseUrl, '/daily-review');
     assert.equal(restoredReview.review.count, 3);
     assert.equal(restoredReview.review.items.find((item) => item.note.id === reviewNoteId)?.status, 'reviewed', '完整归档应恢复回顾进度');
+
+    const deletedBatch = await jsonRequest(baseUrl, '/notes/batch-delete', {
+      method: 'POST', body: JSON.stringify({ ids: [items[10].note.id, items[11].note.id] }),
+    });
+    assert.equal(deletedBatch.deletedCount, 2);
+    assert.equal(deletedBatch.notes.length, 10);
 
     await jsonRequest(baseUrl, `/notes/${items[1].note.id}`, {
       method: 'PATCH',
