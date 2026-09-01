@@ -52,6 +52,9 @@ import {
   updateNote,
   getDataInfo,
   createBackup,
+  getStoredBackups,
+  previewStoredBackup,
+  restoreStoredBackup,
   createFullArchive as createFullArchiveBackup,
   restoreFromBackup,
   restoreFullArchive as restoreFullArchiveBackup,
@@ -81,7 +84,7 @@ import {
   getAiPresets,
   reCategorizeNotes as reCategorizeAllNotes,
 } from '../lib/xhs-client';
-import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset, LibraryDiscoveryResult, LibraryRecoveryPreview } from '../lib/xhs-client';
+import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset, LibraryDiscoveryResult, LibraryRecoveryPreview, StoredBackup, StoredBackupPreview } from '../lib/xhs-client';
 import { renderMarkdown } from '../lib/markdown';
 import {
   acceptsExternalNoteDrag,
@@ -1816,6 +1819,8 @@ export function DeskView() {
   const [backing, setBacking] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [storedBackups, setStoredBackups] = useState<StoredBackup[]>([]);
+  const [storedBackupPreview, setStoredBackupPreview] = useState<StoredBackupPreview | null>(null);
   const [showDailyReview, setShowDailyReview] = useState(false);
 
   // AI settings
@@ -2590,11 +2595,12 @@ export function DeskView() {
 
   const handleOpenSettings = useCallback(async () => {
     setShowSettings(true);
-    const [infoResult, settingsResult, storageResult, presetsResult] = await Promise.allSettled([
+    const [infoResult, settingsResult, storageResult, presetsResult, backupsResult] = await Promise.allSettled([
       getDataInfo(),
       getAiSettings(),
       getStorageInfo(),
       getAiPresets(),
+      getStoredBackups(),
     ]);
     if (infoResult.status === 'fulfilled') setDataInfo(infoResult.value);
     if (settingsResult.status === 'fulfilled') {
@@ -2615,6 +2621,7 @@ export function DeskView() {
     }
     if (storageResult.status === 'fulfilled') setStorageInfo(storageResult.value);
     if (presetsResult.status === 'fulfilled') setAiPresets(presetsResult.value);
+    if (backupsResult.status === 'fulfilled') setStoredBackups(backupsResult.value);
   }, []);
 
   const handleSaveAiSettings = async () => {
@@ -2789,6 +2796,7 @@ export function DeskView() {
       await createBackup();
       const info = await getDataInfo();
       setDataInfo(info);
+      setStoredBackups(await getStoredBackups());
       setImportFeedback({ phase: 'complete', title: '备份创建', message: '备份文件已保存到本地' });
       dismissImportFeedback('complete', 2200);
     } catch {
@@ -2853,6 +2861,27 @@ export function DeskView() {
       }
     };
     input.click();
+  };
+
+  const handlePreviewStoredBackup = async (name: string) => {
+    try { setStoredBackupPreview(await previewStoredBackup(name)); }
+    catch (error) { setImportFeedback({ phase: 'error', title: '快照无法预览', message: error instanceof Error ? error.message : '备份损坏' }); }
+  };
+
+  const handleRestoreStoredBackup = async () => {
+    if (!storedBackupPreview || restoring) return;
+    setRestoring(true);
+    try {
+      const result = await restoreStoredBackup(storedBackupPreview.name);
+      setNotes(result.notes);
+      setStoredBackupPreview(null);
+      setImportFeedback({ phase: 'complete', title: '快照恢复完成', message: `新增 ${result.imported} · 更新 ${result.updated || 0} · 冲突 ${result.conflicts || 0}` });
+      dismissImportFeedback('complete', 3000);
+      setDataInfo(await getDataInfo());
+      setStoredBackups(await getStoredBackups());
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: '快照恢复失败', message: error instanceof Error ? error.message : '请重试' });
+    } finally { setRestoring(false); }
   };
 
   const handleDiscoverLibraries = async (openWhenFound = false) => {
@@ -4356,6 +4385,26 @@ export function DeskView() {
                   <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
                     .kanbox 包含全部图片和视频；跨设备恢复会按修订号合并，不覆盖较新的本机修改
                   </p>
+                  {storedBackups.length > 0 && (
+                    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#5E5A54' }}>本机恢复快照</div>
+                      {storedBackups.slice(0, 5).map((backup) => (
+                        <div key={backup.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', borderRadius: 9, background: backup.status === 'damaged' ? 'rgba(181,106,91,0.06)' : '#F7F5F0' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 10.5, color: '#514D47', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{backup.type === 'auto' ? '自动快照' : '手动备份'} · {new Date(backup.exportedAt).toLocaleString()}</div>
+                            <div style={{ marginTop: 2, fontSize: 9.5, color: backup.status === 'damaged' ? '#B56A5B' : '#99938A' }}>{backup.status === 'damaged' ? backup.issue : `${backup.noteCount} 条 · ${formatBytes(backup.size)}`}</div>
+                          </div>
+                          <button type="button" disabled={backup.status === 'damaged' || restoring} onClick={() => void handlePreviewStoredBackup(backup.name)} style={{ flexShrink: 0, padding: '5px 8px', borderRadius: 7, border: 'none', background: '#829987', color: '#fff', fontSize: 9.5, opacity: backup.status === 'damaged' ? 0.4 : 1, cursor: 'pointer' }}>预览</button>
+                        </div>
+                      ))}
+                      {storedBackupPreview && (
+                        <div style={{ padding: 10, borderRadius: 9, background: 'rgba(130,153,135,0.1)', fontSize: 10.5, lineHeight: 1.6, color: '#536458' }}>
+                          当前 {storedBackupPreview.current} → 恢复后 {storedBackupPreview.result}<br />新增 {storedBackupPreview.added} · 更新 {storedBackupPreview.updated} · 保留 {storedBackupPreview.kept} · 冲突 {storedBackupPreview.conflicts}
+                          <button type="button" disabled={restoring} onClick={() => void handleRestoreStoredBackup()} style={{ marginTop: 7, width: '100%', height: 30, border: 'none', borderRadius: 7, background: '#6F8675', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{restoring ? '恢复中…' : '确认合并恢复'}</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Library discovery and recovery */}

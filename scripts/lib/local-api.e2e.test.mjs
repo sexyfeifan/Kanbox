@@ -83,6 +83,16 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(batch.succeeded, 12);
     assert.equal(batch.failed, 0);
     assert.equal(batch.notes.length, 12);
+    await jsonRequest(baseUrl, '/data/backup', { method: 'POST', body: '{}' });
+    const storedBackups = await jsonRequest(baseUrl, '/data/backups');
+    assert.equal(storedBackups.backups.length, 1);
+    assert.equal(storedBackups.backups[0].noteCount, 12);
+    const storedPreview = await jsonRequest(baseUrl, '/data/backups/preview', { method: 'POST', body: JSON.stringify({ name: storedBackups.backups[0].name }) });
+    assert.equal(storedPreview.preview.result, 12);
+    assert.equal(storedPreview.preview.kept, 12);
+    const storedRestore = await jsonRequest(baseUrl, '/data/backups/restore', { method: 'POST', body: JSON.stringify({ name: storedBackups.backups[0].name }) });
+    assert.equal(storedRestore.notes.length, 12);
+    await assert.rejects(() => jsonRequest(baseUrl, '/data/backups/preview', { method: 'POST', body: JSON.stringify({ name: '../notes.json' }) }), /名称无效/);
     const conflictedNotes = batch.notes.map((note, index) => index === 0
       ? { ...note, syncConflict: true, syncConflictFields: ['title', 'content'] }
       : note);

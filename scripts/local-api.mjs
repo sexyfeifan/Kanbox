@@ -290,7 +290,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.12';
+const BACKUP_VERSION = '0.8.13';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -1168,6 +1168,41 @@ async function getDataInfo() {
     mediaSize,
     backupCount,
   };
+}
+
+const METADATA_BACKUP_NAME = /^(?:auto-backup-\d{4}-\d{2}-\d{2}(?:-\d{2})?|backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.json$/;
+
+async function readStoredMetadataBackup(name) {
+  const safeName = String(name || '');
+  if (!METADATA_BACKUP_NAME.test(safeName) || path.basename(safeName) !== safeName) throw new Error('备份名称无效');
+  const backupPath = path.join(dataDirectory, 'backups', safeName);
+  const fileStats = await stat(backupPath);
+  if (!fileStats.isFile() || fileStats.size > 500 * 1024 * 1024) throw new Error('备份文件无效或过大');
+  const payload = JSON.parse(await readFile(backupPath, 'utf8'));
+  if (!Array.isArray(payload?.notes)) throw new Error('备份内容损坏');
+  return { payload, fileStats };
+}
+
+async function listStoredMetadataBackups() {
+  const backupDir = path.join(dataDirectory, 'backups');
+  const items = [];
+  for (const name of (await readdir(backupDir).catch(() => [])).filter((file) => METADATA_BACKUP_NAME.test(file)).slice(-200)) {
+    try {
+      const { payload, fileStats } = await readStoredMetadataBackup(name);
+      items.push({ name, type: payload.type === 'auto' ? 'auto' : 'manual', exportedAt: payload.exportedAt || fileStats.mtime.toISOString(), noteCount: payload.notes.length, size: fileStats.size, status: 'healthy' });
+    } catch (error) {
+      const fileStats = await stat(path.join(backupDir, name)).catch(() => null);
+      items.push({ name, type: name.startsWith('auto-') ? 'auto' : 'manual', exportedAt: fileStats?.mtime?.toISOString() || '', noteCount: 0, size: fileStats?.size || 0, status: 'damaged', issue: error instanceof Error ? error.message : '备份损坏' });
+    }
+  }
+  return items.sort((a, b) => String(b.exportedAt).localeCompare(String(a.exportedAt)) || b.name.localeCompare(a.name));
+}
+
+async function previewStoredMetadataBackup(name) {
+  const { payload } = await readStoredMetadataBackup(name);
+  const current = await readNotes();
+  const merged = mergeNoteCollections(current, payload.notes);
+  return { name, current: current.length, result: merged.notes.length, added: merged.stats.added, updated: merged.stats.updated, kept: merged.stats.kept + merged.stats.unchanged, conflicts: merged.stats.conflicts, skipped: merged.stats.invalid };
 }
 
 async function buildNotesResponse() {
@@ -2433,6 +2468,24 @@ const server = createServer(async (request, response) => {
     // Backup
     if (request.method === 'POST' && url.pathname === '/data/backup') {
       sendJson(request, response, 200, await createBackup());
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/data/backups') {
+      sendJson(request, response, 200, { ok: true, backups: await listStoredMetadataBackups() });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/backups/preview') {
+      const body = await readRequestBody(request);
+      sendJson(request, response, 200, { ok: true, preview: await previewStoredMetadataBackup(body?.name) });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/backups/restore') {
+      const body = await readRequestBody(request);
+      const { payload } = await readStoredMetadataBackup(body?.name);
+      sendJson(request, response, 200, await queueMutation(() => restoreFromBackup(payload)));
       return;
     }
 

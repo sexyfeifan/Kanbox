@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.12-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.13-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.13 更新
+
+- **快照历史可见** — 设置页直接列出最近的自动快照和手动 JSON 备份，显示时间、笔记数、文件大小与健康状态
+- **恢复前差异预览** — 选择快照后先计算当前与恢复后数量，以及新增、更新、保留、冲突和跳过，不再盲目恢复
+- **一键安全合并** — 确认后直接从本机备份目录合并恢复，沿用修订号、同步冲突与删除墓碑规则，不覆盖较新的本机修改
+- **损坏备份隔离** — JSON 无法解析或内容不合法的快照仍显示在历史中，但标记损坏并禁止恢复
+- **路径边界保护** — 快照 API 只接受 Kanbox 生成的已知备份文件名，拒绝目录穿越与任意文件读取
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.13
 
 ## 🆕 v0.8.12 更新
 

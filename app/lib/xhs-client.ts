@@ -543,6 +543,24 @@ export async function createBackup(): Promise<{ ok: boolean; path: string; size:
   return fetchLocalApi('/data/backup', { method: 'POST' }, 15000);
 }
 
+export type StoredBackup = { name: string; type: 'auto' | 'manual'; exportedAt: string; noteCount: number; size: number; status: 'healthy' | 'damaged'; issue?: string };
+export type StoredBackupPreview = { name: string; current: number; result: number; added: number; updated: number; kept: number; conflicts: number; skipped: number };
+
+export async function getStoredBackups(): Promise<StoredBackup[]> {
+  const payload = await fetchLocalApi<{ backups?: StoredBackup[] }>('/data/backups');
+  return Array.isArray(payload.backups) ? payload.backups : [];
+}
+
+export async function previewStoredBackup(name: string): Promise<StoredBackupPreview> {
+  const payload = await fetchLocalApi<{ preview: StoredBackupPreview }>('/data/backups/preview', { method: 'POST', body: JSON.stringify({ name }) });
+  return payload.preview;
+}
+
+export async function restoreStoredBackup(name: string): Promise<RestoreResult> {
+  const payload = await fetchLocalApi<{ notes: RawNote[]; imported: number; skipped: number; total: number; updated?: number; kept?: number; conflicts?: number }>('/data/backups/restore', { method: 'POST', body: JSON.stringify({ name }) }, 60000);
+  return { notes: normalizeRemoteNotes(payload).notes, imported: payload.imported || 0, skipped: payload.skipped || 0, total: payload.total || 0, updated: payload.updated || 0, kept: payload.kept || 0, conflicts: payload.conflicts || 0 };
+}
+
 export type RestoreResult = {
   notes: Note[];
   imported: number;
