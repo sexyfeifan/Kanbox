@@ -27,6 +27,8 @@ import {
   Star,
   Clock3,
   Circle,
+  CheckCircle2,
+  History,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -102,6 +104,7 @@ import {
 import { stripDuplicateTagSuffix } from '../lib/note-content.mjs';
 import { DailyReviewDialog } from './DailyReviewDialog';
 import { filterNotesByQuery } from '../../scripts/lib/note-search.mjs';
+import { countNoteViews, filterNotesByView, sortNotesForView } from '../../scripts/lib/note-views.mjs';
 import {
   createDeskGroup,
   deleteDeskGroup,
@@ -1771,7 +1774,7 @@ export function DeskView() {
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'favorite' | 'unread' | 'later'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'favorite' | 'unread' | 'later' | 'read' | 'recent' | 'today'>('all');
   const [setupPanel, setSetupPanel] = useState<SetupPanel | null>(null);
   const [setupInfo, setSetupInfo] = useState<LocalSetupInfo | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -1781,7 +1784,7 @@ export function DeskView() {
   const [pasteUrl, setPasteUrl] = useState('');
   const [showPasteInput, setShowPasteInput] = useState(false);
   const [pasteLoading, setPasteLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'lastRead'>('newest');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
@@ -1964,22 +1967,7 @@ export function DeskView() {
     localStorage.setItem('kanbox:onboarding-seen', 'true');
   };
 
-  const sortNotes = useCallback((notesToSort: Note[]) => {
-    const sorted = [...notesToSort];
-    switch (sortBy) {
-      case 'oldest':
-        sorted.sort((a, b) => new Date(a.savedAt).getTime() - new Date(b.savedAt).getTime());
-        break;
-      case 'title':
-        sorted.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
-        break;
-      case 'newest':
-      default:
-        sorted.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
-        break;
-    }
-    return sorted;
-  }, [sortBy]);
+  const sortNotes = useCallback((notesToSort: Note[]) => sortNotesForView(notesToSort, sortBy) as Note[], [sortBy]);
 
   const loadLocalStatus = async () => {
     setServiceHealth(await getLocalServiceHealth());
@@ -2112,6 +2100,7 @@ export function DeskView() {
     }
     return Array.from(set);
   }, [notes]);
+  const noteViewCounts = useMemo(() => countNoteViews(notes) as Record<string, number>, [notes]);
   const visibleNotes = useMemo(
     () => {
       const filtered = filterNotesByQuery(
@@ -2120,10 +2109,7 @@ export function DeskView() {
         (note: Note) => groupNameById.get(deskState.noteGroupMap?.[note.id] || 'inbox') || '',
       ) as Note[];
       const afterCategory = categoryFilter ? filtered.filter((note) => note.category === categoryFilter) : filtered;
-      const afterStatus = statusFilter === 'favorite' ? afterCategory.filter((note) => note.favorite)
-        : statusFilter === 'unread' ? afterCategory.filter((note) => (note.readState || 'unread') === 'unread')
-          : statusFilter === 'later' ? afterCategory.filter((note) => note.readState === 'later')
-            : afterCategory;
+      const afterStatus = filterNotesByView(afterCategory, statusFilter) as Note[];
       return sortNotes(afterStatus);
     },
     [notes, searchQuery, categoryFilter, statusFilter, groupNameById, deskState.noteGroupMap, sortNotes],
@@ -3168,7 +3154,7 @@ export function DeskView() {
             onKeyDown={(event) => {
               if (event.key === 'Escape') setSearchQuery('');
             }}
-            placeholder={t('search')}
+            placeholder={`${t('search')} · 支持 title:、tag:、引号和 -排除`}
             aria-label={t('search')}
             style={{
               width: '100%', height: 34, padding: '0 13px 0 36px',
@@ -3181,7 +3167,7 @@ export function DeskView() {
         </div>
 
         <div style={{ display: 'flex', gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
-          {([['newest', t('newest')], ['oldest', t('oldest')], ['title', t('title')]] as const).map(([key, label]) => (
+          {([['newest', t('newest')], ['oldest', t('oldest')], ['title', t('title')], ['lastRead', '最近阅读']] as const).map(([key, label]) => (
             <button key={key} onClick={() => setSortBy(key)}
               className="titlebar-no-drag"
               style={{
@@ -3449,6 +3435,9 @@ export function DeskView() {
             ['favorite', '收藏', Star],
             ['unread', '未读', BookOpen],
             ['later', '稍后阅读', Clock3],
+            ['read', '已读', CheckCircle2],
+            ['recent', '近 7 天读过', History],
+            ['today', '今日收录', CalendarDays],
           ] as const).map(([key, label, Icon]) => {
             const active = statusFilter === key;
             return (
@@ -3456,7 +3445,7 @@ export function DeskView() {
                 display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: 'none',
                 background: active ? '#6E806F' : 'rgba(253,252,250,0.78)', color: active ? '#fff' : '#666159',
                 fontSize: 10.5, fontWeight: 600, cursor: 'pointer', boxShadow: active ? '0 2px 8px rgba(55,45,25,0.1)' : 'none',
-              }}><Icon size={11} fill={key === 'favorite' && active ? 'currentColor' : 'none'} />{label}</button>
+              }}><Icon size={11} fill={key === 'favorite' && active ? 'currentColor' : 'none'} />{label} {noteViewCounts[key]}</button>
             );
           })}
           <span style={{ width: 1, background: 'rgba(73,56,28,0.1)', margin: '1px 2px' }} />

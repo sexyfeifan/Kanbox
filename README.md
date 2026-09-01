@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.7-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.8-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,16 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.8 更新
+
+- **高级查询语法** — 支持 `title:`、`author:`、`tag:`、`category:`、`ocr:`、`transcript:` 字段限定，双引号精确短语和 `-` 排除词可组合使用
+- **原有搜索不回退** — 普通关键词仍覆盖标题、正文、图片 OCR、视频文稿、作者、标签、分类和分组，并继续支持拼音与模糊匹配
+- **智能资料视图** — 首页新增已读、近 7 天读过和今日收录视图，与收藏、未读、稍后阅读、搜索和分类自由组合
+- **数量即时可见** — 每个智能视图直接显示匹配条数，打开资料库即可看清待读队列和当天收录情况
+- **最近阅读排序** — 新增按最近阅读时间排序，未读内容稳定置后，方便接着上次的阅读脉络继续整理
+- **本地时间语义** — “今日收录”按设备本地日期计算，“近 7 天读过”排除未来或损坏时间，旧资料安全兼容
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.8
 
 ## 🆕 v0.8.7 更新
 
