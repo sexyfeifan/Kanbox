@@ -65,6 +65,7 @@ import {
   mergeNoteCollections,
   mergeWorkspaceRecords,
   recordFingerprint,
+  resolveNoteConflict,
   stampRecord,
 } from './lib/sync-merge.mjs';
 
@@ -287,7 +288,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.10';
+const BACKUP_VERSION = '0.8.11';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -1328,7 +1329,9 @@ async function updateNote(noteId, updates = {}) {
   }
 
   const updatedNotes = [...existingNotes];
-  updatedNotes[noteIndex] = stampRecord(updated, { deviceId });
+  updatedNotes[noteIndex] = updates.resolveSyncConflict === true
+    ? resolveNoteConflict(updated, { deviceId })
+    : stampRecord(updated, { deviceId });
   await writeNotes(updatedNotes);
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 

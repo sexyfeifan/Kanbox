@@ -1,4 +1,4 @@
-export const NOTE_VIEW_KEYS = ['all', 'favorite', 'unread', 'later', 'read', 'recent', 'today'];
+export const NOTE_VIEW_KEYS = ['all', 'favorite', 'unread', 'later', 'read', 'recent', 'today', 'conflict'];
 
 function validTime(value) {
   const time = new Date(value || '').getTime();
@@ -22,6 +22,7 @@ export function matchesNoteView(note, view, now = new Date()) {
       return readAt > 0 && readAt <= now.getTime() && readAt >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
     }
     case 'today': return localDayKey(note?.savedAt) === localDayKey(now);
+    case 'conflict': return note?.syncConflict === true;
     case 'all':
     default: return true;
   }

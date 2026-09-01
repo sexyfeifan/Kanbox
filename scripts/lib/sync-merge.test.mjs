@@ -5,6 +5,7 @@ import {
   mergeNoteCollections,
   mergeNoteRecords,
   mergeWorkspaceRecords,
+  resolveNoteConflict,
   stampRecord,
 } from './sync-merge.mjs';
 
@@ -53,4 +54,14 @@ test('stampRecord advances revision and records the editing device', () => {
   const stamped = stampRecord({ revision: 7 }, { now: '2026-08-22T00:00:00Z', deviceId: 'device-a' });
   assert.equal(stamped.revision, 8);
   assert.equal(stamped.updatedBy, 'device-a');
+});
+
+test('resolveNoteConflict clears markers and advances the logical clock', () => {
+  const resolved = resolveNoteConflict({ revision: 4, syncConflict: true, syncConflictFields: ['title'] }, {
+    now: '2026-09-01T00:00:00Z', deviceId: 'device-reviewer',
+  });
+  assert.equal(resolved.syncConflict, undefined);
+  assert.equal(resolved.syncConflictFields, undefined);
+  assert.equal(resolved.revision, 5);
+  assert.equal(resolved.updatedBy, 'device-reviewer');
 });

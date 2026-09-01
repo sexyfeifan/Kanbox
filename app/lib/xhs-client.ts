@@ -190,6 +190,16 @@ function normalizeNote(note: Partial<Note>): Note {
     comments: typeof note.comments === 'number' ? note.comments : 0,
     category: normalizedCategory,
     savedAt: toDate(note.savedAt),
+    updatedAt: typeof note.updatedAt === 'string' ? note.updatedAt : undefined,
+    updatedBy: typeof note.updatedBy === 'string' ? note.updatedBy : undefined,
+    revision: Number.isSafeInteger(Number(note.revision)) ? Number(note.revision) : undefined,
+    syncConflict: note.syncConflict === true,
+    syncConflictFields: Array.isArray(note.syncConflictFields)
+      ? note.syncConflictFields.map((field) => String(field)).filter(Boolean).slice(0, 100)
+      : [],
+    favorite: note.favorite === true,
+    readState: note.readState === 'read' || note.readState === 'later' ? note.readState : 'unread',
+    lastReadAt: typeof note.lastReadAt === 'string' ? note.lastReadAt : undefined,
     tags: Array.isArray(note.tags) ? note.tags : [],
     type: note.type === 'video' ? 'video' : 'normal',
     imageAspect: note.imageAspect,
@@ -333,6 +343,7 @@ export async function updateNote(noteId: string, updates: {
   category?: string;
   favorite?: boolean;
   readState?: 'unread' | 'read' | 'later';
+  resolveSyncConflict?: boolean;
 }): Promise<UpdateNoteResult> {
   const payload = await fetchLocalApi<{
     notes?: RawNote[];

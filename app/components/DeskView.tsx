@@ -29,6 +29,7 @@ import {
   Circle,
   CheckCircle2,
   History,
+  AlertTriangle,
 } from 'lucide-react';
 import { Note } from '../types/xiaohongshu';
 import { useNotes, useApp } from '../lib/store';
@@ -321,7 +322,7 @@ function ExpandedCard({
   note: Note;
   onClose: () => void;
   onDelete: () => void;
-  onUpdate: (updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later' }) => void;
+  onUpdate: (updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later'; resolveSyncConflict?: boolean }) => void;
   onTranscribe: () => Promise<void>;
   onNoteChanged: (note: Note) => void;
   isDeleting: boolean;
@@ -582,6 +583,24 @@ function ExpandedCard({
           padding: '30px 32px 34px',
           background: '#FDFCFA',
         }}>
+          {note.syncConflict && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, padding: '12px 13px',
+              borderRadius: 12, background: 'rgba(181,106,91,0.09)', border: '1px solid rgba(181,106,91,0.16)', color: '#835248',
+            }}>
+              <AlertTriangle size={16} style={{ marginTop: 1, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700 }}>检测到跨设备冲突</div>
+                <div style={{ marginTop: 3, fontSize: 10.5, lineHeight: 1.5 }}>
+                  已自动合并；涉及字段：{(note.syncConflictFields || []).join('、') || '内容'}。请检查当前内容后确认。
+                </div>
+              </div>
+              <button type="button" onClick={() => onUpdate({ resolveSyncConflict: true })} style={{
+                flexShrink: 0, height: 28, padding: '0 9px', borderRadius: 8, border: 'none', background: '#A86659', color: '#fff',
+                fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+              }}>确认当前内容</button>
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -1775,7 +1794,7 @@ export function DeskView() {
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'favorite' | 'unread' | 'later' | 'read' | 'recent' | 'today'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'favorite' | 'unread' | 'later' | 'read' | 'recent' | 'today' | 'conflict'>('all');
   const [setupPanel, setSetupPanel] = useState<SetupPanel | null>(null);
   const [setupInfo, setSetupInfo] = useState<LocalSetupInfo | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -2318,7 +2337,7 @@ export function DeskView() {
     }
   };
 
-  const handleUpdateNote = async (noteId: string, updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later' }, keepExpanded = true) => {
+  const handleUpdateNote = async (noteId: string, updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later'; resolveSyncConflict?: boolean }, keepExpanded = true) => {
     try {
       const result = await updateNote(noteId, updates);
       setNotes(result.notes);
@@ -3473,6 +3492,7 @@ export function DeskView() {
             ['read', '已读', CheckCircle2],
             ['recent', '近 7 天读过', History],
             ['today', '今日收录', CalendarDays],
+            ['conflict', '同步冲突', AlertTriangle],
           ] as const).map(([key, label, Icon]) => {
             const active = statusFilter === key;
             return (

@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.10-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.11-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.11 更新
+
+- **同步冲突可见** — 新增“同步冲突”智能视图和实时数量，跨设备合并产生的待审核笔记不再藏在数据字段里
+- **冲突字段提示** — 阅读器明确显示发生分叉的字段，自动合并结果可在原文、标签与分类上下文中直接检查
+- **人工确认闭环** — 确认当前内容后清除冲突标记、推进修订号并记录本机设备身份，避免另一台设备重复提示旧冲突
+- **同步元数据修复** — 修复前端标准化遗漏修订号、写入设备和冲突字段的问题，后端检测结果现在能完整到达界面
+- **阅读状态不再丢失** — 同步修复标准化遗漏收藏、未读、稍后阅读与最近阅读时间的问题，刷新后状态保持一致
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.11
 
 ## 🆕 v0.8.10 更新
 

@@ -83,6 +83,16 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(batch.succeeded, 12);
     assert.equal(batch.failed, 0);
     assert.equal(batch.notes.length, 12);
+    const conflictedNotes = batch.notes.map((note, index) => index === 0
+      ? { ...note, syncConflict: true, syncConflictFields: ['title', 'content'] }
+      : note);
+    await writeFile(path.join(dataDirectory, 'notes.json'), `${JSON.stringify(conflictedNotes)}\n`);
+    const resolvedConflict = await jsonRequest(baseUrl, `/notes/${items[0].note.id}`, {
+      method: 'PATCH', body: JSON.stringify({ resolveSyncConflict: true }),
+    });
+    assert.equal(resolvedConflict.note.syncConflict, undefined);
+    assert.equal(resolvedConflict.note.syncConflictFields, undefined);
+    assert.ok(resolvedConflict.note.revision > conflictedNotes[0].revision, '确认冲突必须推进修订号');
     const firstSharedText = `${items[0].note.title}\n${items[0].note.content}\n${items[0].note.sourceUrl}`;
     const secondSharedText = `${items[1].note.title}\n${items[1].note.content}\n${items[1].note.sourceUrl}`;
     const duplicateBatch = await jsonRequest(baseUrl, '/notes/import/batch', {

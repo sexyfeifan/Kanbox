@@ -76,6 +76,13 @@ export function initializeRecord(record, { now = new Date().toISOString(), devic
   };
 }
 
+export function resolveNoteConflict(record, options = {}) {
+  const resolved = { ...record };
+  delete resolved.syncConflict;
+  delete resolved.syncConflictFields;
+  return stampRecord(resolved, options);
+}
+
 export function mergeNoteRecords(localNote, incomingNote) {
   const local = initializeRecord(localNote);
   const incoming = initializeRecord(incomingNote);
