@@ -50,7 +50,9 @@ export type BatchImportResult = {
   failed: number;
   created: number;
   updated: number;
-  results: Array<{ ok: boolean; id?: string; title?: string; created?: boolean; error?: string }>;
+  skipped: number;
+  totalRequested: number;
+  results: Array<{ ok: boolean; id?: string; title?: string; created?: boolean; input?: string; index?: number; skipped?: boolean; error?: string }>;
 };
 
 export type UpdateNoteResult = {
@@ -305,6 +307,8 @@ export async function importSharedNotes(inputs: string[]): Promise<BatchImportRe
     failed?: number;
     created?: number;
     updated?: number;
+    skipped?: number;
+    totalRequested?: number;
     results?: BatchImportResult['results'];
   }>('/notes/import/batch', {
     method: 'POST',
@@ -317,6 +321,8 @@ export async function importSharedNotes(inputs: string[]): Promise<BatchImportRe
     failed: payload.failed || 0,
     created: payload.created || 0,
     updated: payload.updated || 0,
+    skipped: payload.skipped || 0,
+    totalRequested: payload.totalRequested || inputs.length,
     results: Array.isArray(payload.results) ? payload.results : [],
   };
 }

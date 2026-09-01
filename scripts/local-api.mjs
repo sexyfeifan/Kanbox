@@ -37,6 +37,7 @@ import {
   noteFromSharedText,
   parseDraggedCardInput,
   parseDraggedNoteInput,
+  prepareBatchImportInputs,
   removeStoredNote,
 } from './lib/note-import.mjs';
 import {
@@ -286,7 +287,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.9';
+const BACKUP_VERSION = '0.8.10';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -1491,24 +1492,36 @@ function queueBatchNoteImport(body = {}) {
     : Array.isArray(body.inputs)
       ? body.inputs.map((input) => ({ input }))
       : [];
-  const items = rawItems
+  const rawInputs = rawItems
     .map((item) => typeof item === 'string' ? { input: item } : item)
     .filter((item) => item && typeof item === 'object');
-  if (items.length === 0) throw new Error('请至少提供一条待导入笔记');
-  if (items.length > 50) throw new Error('单次最多批量导入 50 条笔记');
+  if (rawInputs.length === 0) throw new Error('请至少提供一条待导入笔记');
+  const preflight = Array.isArray(body.inputs)
+    ? prepareBatchImportInputs(rawInputs.map((item) => item.input))
+    : { items: rawInputs.map((item, originalIndex) => ({ input: item.input, originalIndex })), duplicates: [], totalRequested: rawInputs.length };
+  const items = preflight.items.map(({ input, originalIndex }) => ({ ...rawInputs[originalIndex], ...(typeof input === 'string' ? { input } : {}), originalIndex }));
 
   return mapConcurrent(items, 3, async (item, index) => {
     try {
-      return { ok: true, ...await prepareNoteImport(item), index };
+      return { ok: true, ...await prepareNoteImport(item), index: item.originalIndex ?? index, input: typeof item.input === 'string' ? item.input.slice(0, 500) : '' };
     } catch (error) {
       return {
         ok: false,
-        index,
+        index: item.originalIndex ?? index,
         input: typeof item.input === 'string' ? item.input.slice(0, 500) : '',
         error: error instanceof Error ? error.message : '导入失败',
       };
     }
-  }).then((prepared) => queueMutation(() => commitBatchNoteImport(prepared)));
+  }).then((prepared) => queueMutation(() => commitBatchNoteImport(prepared)))
+    .then((result) => ({
+      ...result,
+      results: [
+        ...result.results,
+        ...preflight.duplicates.map((duplicate) => ({ ok: false, skipped: true, ...duplicate, error: duplicate.reason })),
+      ].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)),
+      skipped: preflight.duplicates.length,
+      totalRequested: preflight.totalRequested,
+    }));
 }
 
 function queueNoteDelete(noteId) {

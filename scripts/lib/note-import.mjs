@@ -80,6 +80,31 @@ export function extractNoteIdFromUrl(value) {
   return null;
 }
 
+export function prepareBatchImportInputs(inputs, maxItems = 50) {
+  const raw = Array.isArray(inputs) ? inputs : [];
+  if (raw.length === 0) return { items: [], duplicates: [], totalRequested: 0 };
+  if (raw.length > 500) throw new Error('一次最多粘贴 500 行');
+  const items = [];
+  const duplicates = [];
+  const seen = new Set();
+  raw.forEach((value, index) => {
+    const input = String(value ?? '').trim();
+    if (!input) return;
+    let sourceUrl = '';
+    try { sourceUrl = extractSharedNoteUrl(input); } catch {}
+    const noteId = sourceUrl ? extractNoteIdFromUrl(sourceUrl) : '';
+    const key = noteId ? `id:${noteId.toLowerCase()}` : `raw:${input.normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('zh-CN')}`;
+    if (seen.has(key)) {
+      duplicates.push({ index, input: input.slice(0, 500), reason: '重复输入已跳过' });
+      return;
+    }
+    seen.add(key);
+    items.push({ input, originalIndex: index });
+  });
+  if (items.length > maxItems) throw new Error(`去重后一次最多批量导入 ${maxItems} 条笔记`);
+  return { items, duplicates, totalRequested: raw.length };
+}
+
 export function serializeDraggedNote(note) {
   return `${DRAG_PAYLOAD_PREFIX}${JSON.stringify(note)}`;
 }

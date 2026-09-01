@@ -9,6 +9,7 @@ import {
   noteFromSharedText,
   parseDraggedCardInput,
   parseDraggedNoteInput,
+  prepareBatchImportInputs,
   removeStoredNote,
   serializeDraggedNote,
 } from './note-import.mjs';
@@ -29,6 +30,20 @@ test('extractNoteIdFromUrl supports current and legacy note paths', () => {
     extractNoteIdFromUrl('https://www.xiaohongshu.com/discovery/item/601a87f50000000001000a07'),
     '601a87f50000000001000a07'
   );
+});
+
+test('批量导入预检按笔记 ID 去重并保留原始顺序', () => {
+  const second = 'https://www.xiaohongshu.com/explore/64cb12340000000001020305';
+  const result = prepareBatchImportInputs([sourceUrl, `${sourceUrl}&extra=1`, second, second]);
+  assert.equal(result.totalRequested, 4);
+  assert.deepEqual(result.items.map((item) => item.originalIndex), [0, 2]);
+  assert.deepEqual(result.duplicates.map((item) => item.index), [1, 3]);
+});
+
+test('批量导入预检限制去重后的条数而不是重复行数', () => {
+  const repeated = Array.from({ length: 100 }, () => sourceUrl);
+  assert.equal(prepareBatchImportInputs(repeated).items.length, 1);
+  assert.throws(() => prepareBatchImportInputs(Array.from({ length: 51 }, (_, index) => `第 ${index} 条无效输入`)), /最多批量导入 50 条/);
 });
 
 test('drag payload round-trips without network access', () => {

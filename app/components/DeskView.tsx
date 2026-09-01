@@ -2477,17 +2477,27 @@ export function DeskView() {
         setImportFeedback({ phase: 'processing', title: '批量导入', message: `正在处理 ${inputs.length} 条笔记…` });
         const result = await importSharedNotes(inputs);
         setNotes(result.notes);
+        const failedInputs = result.results
+          .filter((item) => !item.ok && !item.skipped && item.input)
+          .map((item) => item.input as string);
         setImportFeedback({
           phase: result.failed > 0 ? 'error' : 'complete',
           title: '批量导入完成',
-          message: `成功 ${result.succeeded} 条，失败 ${result.failed} 条`,
+          message: `新增 ${result.created} · 更新 ${result.updated} · 失败 ${result.failed} · 跳过重复 ${result.skipped}${failedInputs.length ? '；失败项已保留，可直接重试' : ''}`,
         });
         dismissImportFeedback(result.failed > 0 ? 'error' : 'complete', 3600);
+        if (failedInputs.length > 0) {
+          setPasteUrl(failedInputs.join('\n'));
+          setShowPasteInput(true);
+        } else {
+          setPasteUrl('');
+          setShowPasteInput(false);
+        }
       } else {
         await runImport(pasteUrl);
+        setPasteUrl('');
+        setShowPasteInput(false);
       }
-      setPasteUrl('');
-      setShowPasteInput(false);
     } catch (error) {
       setImportFeedback({
         phase: 'error',

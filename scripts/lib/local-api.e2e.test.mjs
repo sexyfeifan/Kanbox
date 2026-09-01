@@ -83,6 +83,15 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(batch.succeeded, 12);
     assert.equal(batch.failed, 0);
     assert.equal(batch.notes.length, 12);
+    const firstSharedText = `${items[0].note.title}\n${items[0].note.content}\n${items[0].note.sourceUrl}`;
+    const secondSharedText = `${items[1].note.title}\n${items[1].note.content}\n${items[1].note.sourceUrl}`;
+    const duplicateBatch = await jsonRequest(baseUrl, '/notes/import/batch', {
+      method: 'POST', body: JSON.stringify({ inputs: [firstSharedText, firstSharedText, secondSharedText] }),
+    });
+    assert.equal(duplicateBatch.succeeded, 2);
+    assert.equal(duplicateBatch.skipped, 1);
+    assert.equal(duplicateBatch.results.filter((result) => result.skipped).length, 1);
+    assert.equal(duplicateBatch.notes.length, 12, '重复输入只更新一次且不得复制笔记');
     const partialBatch = await jsonRequest(baseUrl, '/notes/import/batch', {
       method: 'POST',
       body: JSON.stringify({ items: [items[0], { input: '这不是笔记链接' }] }),
