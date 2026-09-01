@@ -1,5 +1,14 @@
 # Kanbox 部署与打包现状
 
+## v0.8.4 存储迁移验收
+
+- 存储切换必须以当前活动资料库为源，不得固定使用本机默认目录。
+- 本机、iCloud、自定义目录的七种方向组合均由自动化测试覆盖。
+- 目标已有资料时执行笔记、工作区、删除墓碑、媒体与备份的并集合并；当前资料库设置优先。
+- 迁移先写目标旁暂存目录，校验成功后原子提交；源目录永不删除，旧目标保留为 `.kanbox-before-migration-*` 快照。
+- 迁移中断保留 `.kanbox-migration-in-progress.json`，目标和源资料不变；重新执行可安全恢复。
+- Developer ID 公证和 Chrome Web Store 正式发布继续暂缓，不作为 v0.8.4 发布门槛。
+
 ## 当前形态
 
 - Tauri 桌面应用（macOS 13+，Apple Silicon / Intel）

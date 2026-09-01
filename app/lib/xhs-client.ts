@@ -803,6 +803,18 @@ export type StorageInfo = {
   localPath: string;
 };
 
+export type StorageMigrationResult = {
+  migrated: boolean;
+  from?: string;
+  to?: string;
+  backup?: string | null;
+  noteCount?: number;
+  sourceNoteCount?: number;
+  targetNoteCount?: number;
+  mediaFiles?: number;
+  conflicts?: number;
+};
+
 export async function getStorageInfo(): Promise<StorageInfo> {
   return fetchLocalApi<{ ok: boolean } & StorageInfo>('/storage', undefined, 8000);
 }
@@ -810,8 +822,8 @@ export async function getStorageInfo(): Promise<StorageInfo> {
 export async function setStorageLocation(
   location: StorageLocation,
   path?: string,
-): Promise<StorageInfo & { needsRestart: boolean; migrated: boolean; message: string }> {
-  return fetchLocalApi<StorageInfo & { needsRestart: boolean; migrated: boolean; message: string }>(
+): Promise<StorageInfo & { needsRestart: boolean; migrated: boolean; migration?: StorageMigrationResult; message: string }> {
+  return fetchLocalApi<StorageInfo & { needsRestart: boolean; migrated: boolean; migration?: StorageMigrationResult; message: string }>(
     '/storage/location',
     { method: 'POST', body: JSON.stringify({ location, path }) },
     60_000,

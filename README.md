@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.3-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.4-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,14 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.4 更新
+
+- **任意位置安全迁移** — 存储切换现在始终从当前活动资料库迁移，完整覆盖本机、iCloud、自定义目录之间的七种切换组合，不再错误地固定读取本机旧副本
+- **目标资料安全合并** — 目标目录已有内容时合并笔记、分组、删除墓碑、媒体和备份；当前设置优先，同修订分叉继续记录同步冲突，不再静默覆盖或跳过迁移
+- **事务提交与可恢复快照** — 在目标旁构建暂存资料库并校验笔记和媒体，成功后才原子切换；源资料始终保留，旧目标自动改名为完整恢复快照，异常中断不会修改当前目标
+- **迁移结果可见** — 切换完成后报告笔记总数和冲突数量，只有迁移成功后才写入存储位置指针；新增七种切换矩阵、已有目标合并与模拟断电测试
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.4
 
 ## 🆕 v0.8.3 更新
 

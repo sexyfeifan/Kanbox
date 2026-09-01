@@ -43,6 +43,7 @@ import {
   icloudKanboxPath,
   isIcloudAvailable,
   localDefaultDataDirectory,
+  migrateDataDirectory,
   migrateDataIfNeeded,
   resolveDataDirectory,
   storageInfo,
@@ -276,7 +277,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.3';
+const BACKUP_VERSION = '0.8.4';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -2027,8 +2028,8 @@ const server = createServer(async (request, response) => {
       } else {
         throw new Error('不支持的存储位置类型');
       }
-      // 目标目录还没有数据且本机默认目录有数据时，复制过去（保留本机兜底）。
-      const migration = await migrateDataIfNeeded(target);
+      // 始终从当前活动资料库迁移；目标已有资料时安全合并，源目录和旧目标快照均保留。
+      const migration = await migrateDataDirectory(dataDirectory, target);
       if (location === 'custom') {
         writeStoragePointer('custom', target);
       } else {
@@ -2038,8 +2039,11 @@ const server = createServer(async (request, response) => {
         ok: true,
         needsRestart: true,
         migrated: migration.migrated,
+        migration,
         ...storageInfo(target),
-        message: '存储位置已切换，重启 Kanbox 后生效',
+        message: migration.migrated
+          ? `已安全迁移 ${migration.noteCount} 条笔记和 ${migration.mediaFiles} 个媒体文件${migration.conflicts ? `，其中 ${migration.conflicts} 条存在同步冲突` : ''}${migration.backup ? `；旧目标快照：${migration.backup}` : ''}；重启 Kanbox 后生效`
+          : '存储位置未发生变化',
       });
       return;
     }
