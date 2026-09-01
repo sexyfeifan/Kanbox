@@ -3223,7 +3223,8 @@ export function DeskView() {
       <header style={{
         position: 'sticky', top: 0, left: 0, right: 0, zIndex: 100,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: `${12 + TITLEBAR_SAFE_TOP}px 20px 12px ${20 + TITLEBAR_SAFE_LEFT}px`,
+        gap: 14,
+        padding: `${12 + TITLEBAR_SAFE_TOP}px 20px 11px ${20 + TITLEBAR_SAFE_LEFT}px`,
         background: 'rgba(235,233,228,0.92)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
@@ -3246,7 +3247,7 @@ export function DeskView() {
         </div>
 
         <div style={{
-          width: 260, margin: '0 22px',
+          width: 'clamp(250px, 24vw, 380px)', margin: '0 8px', flexShrink: 1,
           position: 'relative', display: 'flex', alignItems: 'center',
         }}>
           <Search size={14} strokeWidth={1.8} style={{ position: 'absolute', left: 13, color: '#8F8A82', pointerEvents: 'none' }} />
@@ -3299,7 +3300,7 @@ export function DeskView() {
           {t('batchMode')}
         </button>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <motion.button
             whileHover={{ y: -1, scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
@@ -3531,68 +3532,79 @@ export function DeskView() {
       {/* ── Category filter chips ── */}
       {notes.length > 0 && (
         <div style={{
-          display: 'flex', flexWrap: 'wrap', gap: 6,
-          padding: '0 20px 10px',
-          paddingLeft: `${20 + TITLEBAR_SAFE_LEFT}px`,
+          display: 'flex', flexDirection: 'column', gap: 4,
+          padding: `8px 20px 9px ${20 + TITLEBAR_SAFE_LEFT}px`,
           position: 'relative', zIndex: 99,
+          background: 'rgba(235,233,228,0.72)',
+          borderBottom: '1px solid rgba(73,56,28,0.055)',
         }}>
-          {([
-            ['all', '全部', Circle],
-            ['favorite', '收藏', Star],
-            ['unread', '未读', BookOpen],
-            ['later', '稍后阅读', Clock3],
-            ['read', '已读', CheckCircle2],
-            ['recent', '近 7 天读过', History],
-            ['today', '今日收录', CalendarDays],
-            ['conflict', '同步冲突', AlertTriangle],
-          ] as const).map(([key, label, Icon]) => {
-            const active = statusFilter === key;
-            return (
-              <button key={key} type="button" onClick={() => setStatusFilter(key)} className="titlebar-no-drag" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: 'none',
-                background: active ? '#6E806F' : 'rgba(253,252,250,0.78)', color: active ? '#fff' : '#666159',
-                fontSize: 10.5, fontWeight: 600, cursor: 'pointer', boxShadow: active ? '0 2px 8px rgba(55,45,25,0.1)' : 'none',
-              }}><Icon size={11} fill={key === 'favorite' && active ? 'currentColor' : 'none'} />{label} {noteViewCounts[key]}</button>
-            );
-          })}
-          <span style={{ width: 1, background: 'rgba(73,56,28,0.1)', margin: '1px 2px' }} />
-          <button
-            type="button"
-            onClick={() => setCategoryFilter(null)}
-            className="titlebar-no-drag"
-            style={{
-              padding: '4px 10px', borderRadius: 999, border: 'none',
-              background: categoryFilter === null ? '#829987' : 'rgba(253,252,250,0.78)',
-              color: categoryFilter === null ? '#fff' : '#666159',
-              fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-              boxShadow: categoryFilter === null ? '0 2px 8px rgba(55,45,25,0.08)' : 'none',
-              transition: 'background 0.15s, color 0.15s',
-            }}
-          >
-            所有分类
-          </button>
-          {categories.map((cat) => {
-            const c = catColor(cat);
-            const isActive = categoryFilter === cat;
-            return (
+          <div style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr)', alignItems: 'center', minHeight: 28 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 650, color: '#AAA49B', letterSpacing: '0.08em' }}>视图</span>
+            <div className="titlebar-no-drag" style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', padding: '1px 0' }}>
+              {([
+                ['all', '全部', Circle],
+                ['favorite', '收藏', Star],
+                ['unread', '未读', BookOpen],
+                ['later', '稍后阅读', Clock3],
+                ['read', '已读', CheckCircle2],
+                ['recent', '近 7 天读过', History],
+                ['today', '今日收录', CalendarDays],
+                ['conflict', '同步冲突', AlertTriangle],
+              ] as const).map(([key, label, Icon]) => {
+                const active = statusFilter === key;
+                return (
+                  <button key={key} type="button" onClick={() => setStatusFilter(key)} aria-pressed={active} style={{
+                    display: 'inline-flex', alignItems: 'center', flexShrink: 0, gap: 4, height: 26, padding: '0 10px', borderRadius: 999,
+                    border: active ? '1px solid transparent' : '1px solid rgba(73,56,28,0.045)',
+                    background: active ? '#6E806F' : 'rgba(253,252,250,0.72)', color: active ? '#fff' : '#666159',
+                    fontSize: 10.5, fontWeight: 600, cursor: 'pointer', boxShadow: active ? '0 2px 8px rgba(55,45,25,0.1)' : 'none',
+                    whiteSpace: 'nowrap',
+                  }}><Icon size={11} fill={key === 'favorite' && active ? 'currentColor' : 'none'} />{label}<span style={{ opacity: active ? 0.8 : 0.55 }}>{noteViewCounts[key]}</span></button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '38px minmax(0, 1fr)', alignItems: 'center', minHeight: 28 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 650, color: '#AAA49B', letterSpacing: '0.08em' }}>分类</span>
+            <div className="titlebar-no-drag" style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', padding: '1px 0' }}>
               <button
-                key={cat}
                 type="button"
-                onClick={() => setCategoryFilter(isActive ? null : cat)}
-                className="titlebar-no-drag"
+                onClick={() => setCategoryFilter(null)}
+                aria-pressed={categoryFilter === null}
                 style={{
-                  padding: '4px 10px', borderRadius: 999, border: 'none',
-                  background: isActive ? c : 'rgba(253,252,250,0.78)',
-                  color: isActive ? '#fff' : '#666159',
-                  fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-                  boxShadow: isActive ? `0 2px 8px ${c}30` : 'none',
+                  height: 26, padding: '0 10px', flexShrink: 0, borderRadius: 999,
+                  border: categoryFilter === null ? '1px solid transparent' : '1px solid rgba(73,56,28,0.045)',
+                  background: categoryFilter === null ? '#829987' : 'rgba(253,252,250,0.72)',
+                  color: categoryFilter === null ? '#fff' : '#666159', fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+                  boxShadow: categoryFilter === null ? '0 2px 8px rgba(55,45,25,0.08)' : 'none',
                   transition: 'background 0.15s, color 0.15s',
-                }}
-              >
-                {cat}
+                  whiteSpace: 'nowrap',
+                }}>
+                所有分类
               </button>
-            );
-          })}
+              {categories.map((cat) => {
+                const c = catColor(cat);
+                const isActive = categoryFilter === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategoryFilter(isActive ? null : cat)}
+                    aria-pressed={isActive}
+                    style={{
+                      height: 26, padding: '0 10px', flexShrink: 0, borderRadius: 999,
+                      border: isActive ? '1px solid transparent' : '1px solid rgba(73,56,28,0.045)',
+                      background: isActive ? c : 'rgba(253,252,250,0.72)', color: isActive ? '#fff' : '#666159',
+                      fontSize: 10.5, fontWeight: 600, cursor: 'pointer', boxShadow: isActive ? `0 2px 8px ${c}30` : 'none',
+                      transition: 'background 0.15s, color 0.15s', whiteSpace: 'nowrap',
+                    }}>
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 

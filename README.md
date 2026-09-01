@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.15-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.16-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,14 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.16 更新
+
+- **筛选层级重整** — 状态视图与内容分类拆分为两条独立筛选栏，不再混排和随机换行
+- **控件规格统一** — 筛选按钮统一高度、间距、圆角与选中反馈，信息层级更容易扫读
+- **窄窗口适配** — 筛选项超出可用宽度时改为横向滚动，避免挤压主界面
+- **顶部空间优化** — 搜索框使用响应式宽度，主要操作按钮间距更紧凑
+- **版本号对齐** — 桌面应用、浏览器扩展、完整归档清单与安装包统一升至 v0.8.16
 
 ## 🆕 v0.8.15 更新
 
