@@ -63,11 +63,13 @@ import {
 import {
   initializeRecord,
   mergeNoteCollections,
+  mergeSyncMetadata,
   mergeWorkspaceRecords,
   recordFingerprint,
   resolveNoteConflict,
   stampRecord,
 } from './lib/sync-merge.mjs';
+import { autoBackupSlot, autoBackupsToRemove, buildMetadataBackup } from './lib/metadata-backup.mjs';
 
 const DEFAULT_PORT = 4318;
 const MCP_SERVER_NAME = 'kanbox-notes';
@@ -288,7 +290,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.11';
+const BACKUP_VERSION = '0.8.12';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -866,7 +868,7 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
 }
 
 async function createBackup() {
-  const [notes, workspace, dailyReview] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState()]);
+  const [notes, workspace, dailyReview, syncMeta] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), readSyncMeta()]);
   const { deviceId } = await getSyncState();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const backupDir = path.join(dataDirectory, 'backups');
@@ -879,18 +881,20 @@ async function createBackup() {
     notes,
     workspace,
     dailyReview,
+    syncMeta,
   }, null, 2), 'utf8');
   const stats = await stat(backupPath);
   return { ok: true, path: backupPath, size: stats.size };
 }
 
 async function createArchiveBackup() {
-  const [notes, workspace, dailyReview, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), getSyncState()]);
+  const [notes, workspace, dailyReview, syncMeta, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), readSyncMeta(), getSyncState()]);
   const result = await createFullArchive({
     dataDirectory,
     notes,
     workspace,
     dailyReview,
+    syncMeta,
     deviceId: syncState.deviceId,
   });
   if (process.platform === 'darwin' && !process.env.KANBOX_DATA_DIRECTORY) {
@@ -967,13 +971,14 @@ async function previewLibraryRecovery(candidateId) {
 
 async function restoreLibraryCandidate(candidateId) {
   const candidate = await resolveLibraryCandidate(candidateId);
-  const [currentNotes, currentWorkspace, currentDailyReview, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), getSyncState()]);
+  const [currentNotes, currentWorkspace, currentDailyReview, currentSyncMeta, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), readSyncMeta(), getSyncState()]);
   const safetyArchive = currentNotes.length > 0
     ? await createFullArchive({
         dataDirectory,
         notes: currentNotes,
         workspace: currentWorkspace,
         dailyReview: currentDailyReview,
+        syncMeta: currentSyncMeta,
         deviceId: syncState.deviceId,
         destinationDirectory: path.join(dataDirectory, 'backups'),
       })
@@ -988,6 +993,7 @@ async function restoreLibraryCandidate(candidateId) {
         writeNotes,
         writeWorkspace,
         writeDailyReview: writeDailyReviewState,
+        writeSyncMetadata: async (incoming) => writeSyncMeta(mergeSyncMetadata(await readSyncMeta(), incoming)),
       });
   const notes = await readNotes();
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
@@ -1036,6 +1042,7 @@ async function restoreArchiveUpload(request) {
         writeNotes,
         writeWorkspace,
         writeDailyReview: writeDailyReviewState,
+        writeSyncMetadata: async (incoming) => writeSyncMeta(mergeSyncMetadata(await readSyncMeta(), incoming)),
       });
     });
   } finally {
@@ -1080,6 +1087,10 @@ async function restoreFromBackup(body) {
   if (body.workspace && typeof body.workspace === 'object') {
     await writeWorkspace(mergeWorkspaceRecords(existingWorkspace, body.workspace));
   }
+  if (body.dailyReview && typeof body.dailyReview === 'object') await writeDailyReviewState(body.dailyReview);
+  if (body.syncMeta && typeof body.syncMeta === 'object') {
+    await writeSyncMeta(mergeSyncMetadata(await readSyncMeta(), body.syncMeta));
+  }
   const finalNotes = await readNotes();
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
   return {
@@ -1095,37 +1106,33 @@ async function restoreFromBackup(body) {
 
 async function runAutoBackup() {
   try {
-    const [notes, workspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
+    const [notes, workspace, dailyReview, syncMeta, syncState] = await Promise.all([
+      readNotes(), readWorkspace(), readDailyReviewState(), readSyncMeta(), getSyncState(),
+    ]);
     if (notes.length === 0) return;
 
     const backupDir = path.join(dataDirectory, 'backups');
     await mkdir(backupDir, { recursive: true });
 
-    // Create backup with date in filename
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10);
-    const backupPath = path.join(backupDir, `auto-backup-${dateStr}.json`);
+    const backupPath = path.join(backupDir, `auto-backup-${autoBackupSlot(now)}.json`);
 
     // Don't overwrite if already exists today
     if (existsSync(backupPath)) return;
 
-    await writeFile(backupPath, JSON.stringify({
-      version: BACKUP_VERSION,
-      type: 'auto',
-      exportedAt: now.toISOString(),
-      sourceDeviceId: syncState.deviceId,
-      notes,
-      workspace,
-    }, null, 2), 'utf8');
+    const payload = buildMetadataBackup({
+      version: BACKUP_VERSION, now, deviceId: syncState.deviceId,
+      notes, workspace, dailyReview, syncMeta,
+    });
+    const tempPath = `${backupPath}.${process.pid}.next`;
+    await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    JSON.parse(await readFile(tempPath, 'utf8'));
+    await rename(tempPath, backupPath);
 
     console.log(`Auto-backup created: ${backupPath}`);
 
-    // Clean up old auto-backups (keep last 7)
-    const files = (await readdir(backupDir))
-      .filter(f => f.startsWith('auto-backup-') && f.endsWith('.json'))
-      .sort()
-      .reverse();
-    for (const old of files.slice(7)) {
+    // 保留最近 14 个六小时快照（约 3.5 天）；兼容并计入旧版每日快照。
+    for (const old of autoBackupsToRemove(await readdir(backupDir), 14)) {
       await rm(path.join(backupDir, old), { force: true });
     }
   } catch (error) {
@@ -2538,8 +2545,8 @@ async function startServer() {
       console.log(`recovered ${recovered.recoveredCount} cached note covers`);
     }
     runAutoBackup();
-    // Run auto-backup every 24 hours
-    setInterval(runAutoBackup, 24 * 60 * 60 * 1000);
+    // 每六小时形成一个稳定槽位的快照；同一槽位重复启动不会覆盖首次快照。
+    setInterval(runAutoBackup, 6 * 60 * 60 * 1000);
   };
 
   let retried = false;

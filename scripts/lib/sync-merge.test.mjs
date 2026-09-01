@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   mergeNoteCollections,
   mergeNoteRecords,
+  mergeSyncMetadata,
   mergeWorkspaceRecords,
   resolveNoteConflict,
   stampRecord,
@@ -64,4 +65,14 @@ test('resolveNoteConflict clears markers and advances the logical clock', () => 
   assert.equal(resolved.syncConflictFields, undefined);
   assert.equal(resolved.revision, 5);
   assert.equal(resolved.updatedBy, 'device-reviewer');
+});
+
+test('sync metadata merge keeps the newest deletion tombstone', () => {
+  const noteId = id(9);
+  const merged = mergeSyncMetadata(
+    { tombstones: { [noteId]: { revision: 3, updatedAt: '2026-09-01T00:00:00Z' } } },
+    { tombstones: { [noteId]: { revision: 4, updatedAt: '2026-08-01T00:00:00Z' }, invalid: { revision: 99 } } },
+  );
+  assert.equal(merged.tombstones[noteId].revision, 4);
+  assert.equal(merged.tombstones.invalid, undefined);
 });

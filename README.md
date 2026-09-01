@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.11-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.12-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.12 更新
+
+- **六小时恢复快照** — 自动备份从每天一份改为每 6 小时一个稳定槽位，保留最近 14 份，降低当天大量整理后只能回到早晨快照的风险
+- **原子写入与自校验** — 自动快照先写唯一临时文件并完成 JSON 解析校验，再原子替换为正式备份；中断不会留下半截备份
+- **回顾进度完整保护** — 手动 JSON 备份、自动快照与完整 `.kanbox` 归档全部包含每日回顾设置和完成进度
+- **删除墓碑纳入归档** — `sync-meta.json` 首次进入完整归档；恢复时按修订号与更新时间合并墓碑，避免旧设备复活已删除笔记
+- **旧备份继续兼容** — 没有回顾或同步元数据的旧 JSON/`.kanbox` 归档仍可恢复，旧版每日自动备份也参与统一保留策略
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.12
 
 ## 🆕 v0.8.11 更新
 

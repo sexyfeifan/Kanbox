@@ -33,6 +33,8 @@ test('full archive includes and verifies image and video bytes', async () => {
       destinationDirectory: path.join(root, 'out'),
       notes: [{ id: noteId, title: 'archive test' }],
       workspace: { groups: [], noteGroupMap: {} },
+      dailyReview: { version: 1, settings: { count: 5 }, days: { today: {} } },
+      syncMeta: { tombstones: { [noteId]: { revision: 2 } } },
       deviceId: 'device-test',
     });
     assert.equal(existsSync(result.path), true);
@@ -40,6 +42,7 @@ test('full archive includes and verifies image and video bytes', async () => {
     try {
       assert.equal(await readFile(path.join(extracted.tempDirectory, 'media', noteId, '01.jpg'), 'utf8'), 'image-bytes');
       assert.equal(await readFile(path.join(extracted.tempDirectory, 'media', noteId, 'video.mp4'), 'utf8'), 'video-bytes');
+      assert.equal(JSON.parse(await readFile(path.join(extracted.tempDirectory, 'sync-meta.json'), 'utf8')).tombstones[noteId].revision, 2);
     } finally {
       await rm(extracted.tempDirectory, { recursive: true, force: true });
     }

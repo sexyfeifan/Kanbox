@@ -83,6 +83,22 @@ export function resolveNoteConflict(record, options = {}) {
   return stampRecord(resolved, options);
 }
 
+export function mergeSyncMetadata(localMeta, incomingMeta) {
+  const tombstones = { ...(localMeta?.tombstones || {}) };
+  for (const [id, incoming] of Object.entries(incomingMeta?.tombstones || {})) {
+    if (!NOTE_ID_PATTERN.test(id) || !incoming || typeof incoming !== 'object') continue;
+    const current = tombstones[id];
+    const currentRevision = Number(current?.revision) || 0;
+    const incomingRevision = Number(incoming.revision) || 0;
+    const currentTime = timestampMs(current?.updatedAt);
+    const incomingTime = timestampMs(incoming.updatedAt);
+    if (!current || incomingRevision > currentRevision || (incomingRevision === currentRevision && incomingTime >= currentTime)) {
+      tombstones[id] = incoming;
+    }
+  }
+  return { tombstones };
+}
+
 export function mergeNoteRecords(localNote, incomingNote) {
   const local = initializeRecord(localNote);
   const incoming = initializeRecord(incomingNote);
