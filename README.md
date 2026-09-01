@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.5-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.6-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.6 更新
+
+- **资料库级回顾进度** — 每日列表、已回顾、稍后复习和完成状态写入资料库的 `daily-review.json`，不再依赖易丢失的 WebView `localStorage`
+- **历史上的今天与重新发现** — 优先重现往年同日收藏，并优先选择长期未回顾内容；同一天顺序稳定，跨天自动轮换
+- **每日数量可配置** — 可选择每天回顾 3、5、8、10、15 或 20 条，修改后立即生成符合新数量的当日列表
+- **可见进度与连续统计** — 支持已回顾、稍后复习、当日完成、再看一遍、连续完成天数和累计完成天数
+- **迁移归档不丢进度** — 回顾数据跟随资料库安全迁移，并纳入 JSON 备份和含全部媒体的完整 `.kanbox` 归档恢复
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.6
 
 ## 🆕 v0.8.5 更新
 

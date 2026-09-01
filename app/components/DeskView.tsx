@@ -3279,7 +3279,6 @@ export function DeskView() {
       <AnimatePresence>
         {showDailyReview && (
           <DailyReviewDialog
-            notes={notes}
             onClose={() => setShowDailyReview(false)}
             onOpenNote={(note) => {
               setShowDailyReview(false);

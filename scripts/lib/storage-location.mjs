@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { mergeNoteCollections, mergeWorkspaceRecords, recordFingerprint } from './sync-merge.mjs';
 
-const DATA_FILES = ['notes.json', 'settings.json', 'workspace.json', 'sync-meta.json'];
+const DATA_FILES = ['notes.json', 'settings.json', 'workspace.json', 'sync-meta.json', 'daily-review.json'];
 const DATA_DIRECTORIES = ['media', 'backups'];
 const MIGRATION_CONTROL_NAME = /\.kanbox-(?:migration|before-migration)/;
 
@@ -256,6 +256,9 @@ export async function migrateDataDirectory(sourceDir, targetDir, options = {}) {
     // 当前活动资料库设置优先；媒体和历史备份做并集合并。
     if (!options.preserveTargetSettings && existsSync(path.join(source, 'settings.json'))) {
       await cp(path.join(source, 'settings.json'), path.join(stage, 'settings.json'), { force: true });
+    }
+    if (!options.preserveTargetSettings && existsSync(path.join(source, 'daily-review.json'))) {
+      await cp(path.join(source, 'daily-review.json'), path.join(stage, 'daily-review.json'), { force: true });
     }
     for (const name of DATA_DIRECTORIES) {
       if (existsSync(path.join(source, name))) await cp(path.join(source, name), path.join(stage, name), { recursive: true, force: true });

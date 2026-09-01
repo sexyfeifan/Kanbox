@@ -791,6 +791,45 @@ export function subscribeToUpdates(onUpdate: () => void): () => void {
   return () => eventSource.close();
 }
 
+export type DailyReviewItem = {
+  note: Note;
+  status: 'pending' | 'reviewed' | 'later';
+  reason: 'on-this-day' | 'rediscovery';
+};
+
+export type DailyReview = {
+  date: string;
+  count: number;
+  items: DailyReviewItem[];
+  reviewedCount: number;
+  pendingCount: number;
+  completed: boolean;
+  completedAt: string;
+  stats: { streak: number; completedDays: number };
+};
+
+export async function getDailyReview(): Promise<DailyReview> {
+  const payload = await fetchLocalApi<{ ok: boolean; review: DailyReview }>('/daily-review', undefined, 8000);
+  return payload.review;
+}
+
+export async function setDailyReviewCount(count: number): Promise<DailyReview> {
+  const payload = await fetchLocalApi<{ ok: boolean; review: DailyReview }>('/daily-review/settings', {
+    method: 'POST', body: JSON.stringify({ count }),
+  }, 8000);
+  return payload.review;
+}
+
+export async function updateDailyReview(
+  type: 'reviewed' | 'later' | 'reset',
+  noteId?: string,
+): Promise<DailyReview> {
+  const payload = await fetchLocalApi<{ ok: boolean; review: DailyReview }>('/daily-review/action', {
+    method: 'POST', body: JSON.stringify({ type, noteId }),
+  }, 8000);
+  return payload.review;
+}
+
 // ─── 存储位置 ─────────────────────────────────────────────────────────────────
 
 export type StorageLocation = 'icloud' | 'local' | 'custom';

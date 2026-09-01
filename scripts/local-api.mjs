@@ -54,6 +54,12 @@ import { aiPresets, validateProviderPresets } from './lib/ai-provider-presets.mj
 import { createFullArchive, extractAndVerifyArchive, restoreFullArchive } from './lib/full-archive.mjs';
 import { discoverLibraries, findCandidate } from './lib/library-discovery.mjs';
 import {
+  applyDailyReviewAction,
+  buildDailyReview,
+  dailyReviewKey,
+  normalizeDailyReviewState,
+} from './lib/daily-review.mjs';
+import {
   initializeRecord,
   mergeNoteCollections,
   mergeWorkspaceRecords,
@@ -77,6 +83,7 @@ const legacyDataDirectory = process.env.KANBOX_LEGACY_DATA_DIRECTORY
   : path.join(os.homedir(), '.kanbox');
 const notesFilePath = path.join(dataDirectory, 'notes.json');
 const workspaceFilePath = path.join(dataDirectory, 'workspace.json');
+const dailyReviewFilePath = path.join(dataDirectory, 'daily-review.json');
 // 设备身份必须保存在本机稳定目录，不能跟随 iCloud 数据目录同步，否则两台 Mac
 // 会误用同一 deviceId。删除墓碑则保存在共享数据目录，用于阻止旧设备复活已删除笔记。
 const syncStateFilePath = process.env.KANBOX_DEVICE_STATE_PATH
@@ -279,7 +286,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.5';
+const BACKUP_VERSION = '0.8.6';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -574,6 +581,55 @@ async function writeWorkspace(value) {
   return workspace;
 }
 
+async function readDailyReviewState() {
+  if (!existsSync(dailyReviewFilePath)) return normalizeDailyReviewState({});
+  try {
+    return normalizeDailyReviewState(JSON.parse(await readFile(dailyReviewFilePath, 'utf8')));
+  } catch (error) {
+    const corruptPath = `${dailyReviewFilePath}.corrupt-${Date.now()}`;
+    await copyFile(dailyReviewFilePath, corruptPath).catch(() => {});
+    console.error('[kanbox] daily-review.json 解析失败，已保留损坏副本:', error?.message || error);
+    return normalizeDailyReviewState({});
+  }
+}
+
+async function writeDailyReviewState(value) {
+  await ensureDataDirectory();
+  const state = normalizeDailyReviewState(value);
+  const tempPath = path.join(dataDirectory, `daily-review.${process.pid}.${++writeNotesSeq}.next.json`);
+  try {
+    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    await rename(tempPath, dailyReviewFilePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+  return state;
+}
+
+async function getDailyReview() {
+  const [notes, state] = await Promise.all([readNotes(), readDailyReviewState()]);
+  const built = buildDailyReview(notes, state);
+  if (JSON.stringify(built.state) !== JSON.stringify(state)) await writeDailyReviewState(built.state);
+  return built.review;
+}
+
+async function updateDailyReviewSettings(count) {
+  const [notes, state] = await Promise.all([readNotes(), readDailyReviewState()]);
+  state.settings.count = Math.max(1, Math.min(20, Number(count) || 5));
+  delete state.days[dailyReviewKey()];
+  const built = buildDailyReview(notes, state);
+  await writeDailyReviewState(built.state);
+  return built.review;
+}
+
+async function updateDailyReviewAction(action) {
+  const [notes, state] = await Promise.all([readNotes(), readDailyReviewState()]);
+  const built = applyDailyReviewAction(notes, state, action);
+  await writeDailyReviewState(built.state);
+  return built.review;
+}
+
 async function getAllTags() {
   const notes = await readNotes();
   const tagMap = new Map();
@@ -793,7 +849,7 @@ h1{color:#829987}h2{border-bottom:1px solid #eee;padding-bottom:8px}meta{color:#
 }
 
 async function createBackup() {
-  const [notes, workspace] = await Promise.all([readNotes(), readWorkspace()]);
+  const [notes, workspace, dailyReview] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState()]);
   const { deviceId } = await getSyncState();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const backupDir = path.join(dataDirectory, 'backups');
@@ -805,17 +861,19 @@ async function createBackup() {
     sourceDeviceId: deviceId,
     notes,
     workspace,
+    dailyReview,
   }, null, 2), 'utf8');
   const stats = await stat(backupPath);
   return { ok: true, path: backupPath, size: stats.size };
 }
 
 async function createArchiveBackup() {
-  const [notes, workspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
+  const [notes, workspace, dailyReview, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), getSyncState()]);
   const result = await createFullArchive({
     dataDirectory,
     notes,
     workspace,
+    dailyReview,
     deviceId: syncState.deviceId,
   });
   if (process.platform === 'darwin' && !process.env.KANBOX_DATA_DIRECTORY) {
@@ -892,12 +950,13 @@ async function previewLibraryRecovery(candidateId) {
 
 async function restoreLibraryCandidate(candidateId) {
   const candidate = await resolveLibraryCandidate(candidateId);
-  const [currentNotes, currentWorkspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
+  const [currentNotes, currentWorkspace, currentDailyReview, syncState] = await Promise.all([readNotes(), readWorkspace(), readDailyReviewState(), getSyncState()]);
   const safetyArchive = currentNotes.length > 0
     ? await createFullArchive({
         dataDirectory,
         notes: currentNotes,
         workspace: currentWorkspace,
+        dailyReview: currentDailyReview,
         deviceId: syncState.deviceId,
         destinationDirectory: path.join(dataDirectory, 'backups'),
       })
@@ -911,6 +970,7 @@ async function restoreLibraryCandidate(candidateId) {
         localWorkspace: currentWorkspace,
         writeNotes,
         writeWorkspace,
+        writeDailyReview: writeDailyReviewState,
       });
   const notes = await readNotes();
   broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
@@ -958,6 +1018,7 @@ async function restoreArchiveUpload(request) {
         localWorkspace,
         writeNotes,
         writeWorkspace,
+        writeDailyReview: writeDailyReviewState,
       });
     });
   } finally {
@@ -1835,6 +1896,25 @@ const server = createServer(async (request, response) => {
       const body = await readRequestBody(request);
       const workspace = await queueMutation(() => writeWorkspace(body.workspace));
       sendJson(request, response, 200, { ok: true, workspace });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/daily-review') {
+      sendJson(request, response, 200, { ok: true, review: await getDailyReview() });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/daily-review/settings') {
+      const body = await readRequestBody(request);
+      const review = await queueMutation(() => updateDailyReviewSettings(body?.count));
+      sendJson(request, response, 200, { ok: true, review });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/daily-review/action') {
+      const body = await readRequestBody(request);
+      const review = await queueMutation(() => updateDailyReviewAction(body));
+      sendJson(request, response, 200, { ok: true, review });
       return;
     }
 

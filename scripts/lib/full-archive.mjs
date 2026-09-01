@@ -23,7 +23,7 @@ import { mergeNoteCollections, mergeWorkspaceRecords } from './sync-merge.mjs';
 const execFileAsync = promisify(execFile);
 const ARCHIVE_SCHEMA = 'kanbox-full-archive';
 const ARCHIVE_FORMAT_VERSION = 1;
-const SAFE_TOP_LEVEL = new Set(['manifest.json', 'notes.json', 'workspace.json', 'media']);
+const SAFE_TOP_LEVEL = new Set(['manifest.json', 'notes.json', 'workspace.json', 'daily-review.json', 'media']);
 
 function portableRelative(root, target) {
   return path.relative(root, target).split(path.sep).join('/');
@@ -76,7 +76,7 @@ async function buildManifest(root, { notes, deviceId, createdAt }) {
   return {
     schema: ARCHIVE_SCHEMA,
     formatVersion: ARCHIVE_FORMAT_VERSION,
-    appVersion: '0.8.5',
+    appVersion: '0.8.6',
     createdAt,
     sourceDeviceId: deviceId || '',
     noteCount: notes.length,
@@ -118,7 +118,7 @@ export async function verifyExtractedArchive(root) {
   return manifest;
 }
 
-export async function createFullArchive({ dataDirectory, notes, workspace, deviceId, destinationDirectory }) {
+export async function createFullArchive({ dataDirectory, notes, workspace, dailyReview, deviceId, destinationDirectory }) {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'kanbox-archive-'));
   const archiveRoot = path.join(tempDirectory, 'archive');
   const createdAt = new Date().toISOString();
@@ -132,6 +132,7 @@ export async function createFullArchive({ dataDirectory, notes, workspace, devic
     await Promise.all([
       writeFile(path.join(archiveRoot, 'notes.json'), `${JSON.stringify(notes, null, 2)}\n`, 'utf8'),
       writeFile(path.join(archiveRoot, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`, 'utf8'),
+      writeFile(path.join(archiveRoot, 'daily-review.json'), `${JSON.stringify(dailyReview || { version: 1, settings: { count: 5 }, days: {} }, null, 2)}\n`, 'utf8'),
     ]);
     const sourceMedia = path.join(dataDirectory, 'media');
     if (existsSync(sourceMedia)) await cp(sourceMedia, path.join(archiveRoot, 'media'), { recursive: true, force: true });
@@ -213,11 +214,14 @@ async function restoreMedia(sourceMediaDirectory, targetMediaDirectory, decision
   return copied;
 }
 
-export async function restoreFullArchive({ archivePath, dataDirectory, localNotes, localWorkspace, writeNotes, writeWorkspace }) {
+export async function restoreFullArchive({ archivePath, dataDirectory, localNotes, localWorkspace, writeNotes, writeWorkspace, writeDailyReview }) {
   const { tempDirectory, manifest } = await extractAndVerifyArchive(archivePath);
   try {
     const incomingNotes = JSON.parse(await readFile(path.join(tempDirectory, 'notes.json'), 'utf8'));
     const incomingWorkspace = JSON.parse(await readFile(path.join(tempDirectory, 'workspace.json'), 'utf8'));
+    const incomingDailyReview = existsSync(path.join(tempDirectory, 'daily-review.json'))
+      ? JSON.parse(await readFile(path.join(tempDirectory, 'daily-review.json'), 'utf8'))
+      : null;
     if (!Array.isArray(incomingNotes)) throw new Error('完整归档中的 notes.json 格式不正确');
     const merged = mergeNoteCollections(localNotes, incomingNotes);
     const workspace = mergeWorkspaceRecords(localWorkspace, incomingWorkspace);
@@ -231,6 +235,7 @@ export async function restoreFullArchive({ archivePath, dataDirectory, localNote
     );
     await writeNotes(merged.notes);
     await writeWorkspace(workspace);
+    if (incomingDailyReview && writeDailyReview) await writeDailyReview(incomingDailyReview);
     return {
       notes: merged.notes,
       workspace,

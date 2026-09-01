@@ -91,6 +91,23 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(partialBatch.failed, 1);
     assert.equal(partialBatch.notes.length, 12, '单条失败不应回滚或重复整批数据');
 
+    const initialReview = await jsonRequest(baseUrl, '/daily-review');
+    assert.equal(initialReview.review.items.length, 5);
+    const configuredReview = await jsonRequest(baseUrl, '/daily-review/settings', {
+      method: 'POST', body: JSON.stringify({ count: 3 }),
+    });
+    assert.equal(configuredReview.review.items.length, 3);
+    const reviewNoteId = configuredReview.review.items[0].note.id;
+    const deferredReview = await jsonRequest(baseUrl, '/daily-review/action', {
+      method: 'POST', body: JSON.stringify({ type: 'later', noteId: reviewNoteId }),
+    });
+    assert.equal(deferredReview.review.items.find((item) => item.note.id === reviewNoteId)?.status, 'later');
+    const reviewed = await jsonRequest(baseUrl, '/daily-review/action', {
+      method: 'POST', body: JSON.stringify({ type: 'reviewed', noteId: reviewNoteId }),
+    });
+    assert.equal(reviewed.review.reviewedCount, 1);
+    assert.equal(existsSync(path.join(dataDirectory, 'daily-review.json')), true, '回顾进度必须写入资料库');
+
     const mediaDirectory = path.join(dataDirectory, 'media', items[0].note.id);
     await mkdir(mediaDirectory, { recursive: true });
     await writeFile(path.join(mediaDirectory, '01.jpg'), Buffer.from('e2e-image-bytes'));
@@ -102,6 +119,10 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(archiveResponse.ok, true);
     const archiveBytes = Buffer.from(await archiveResponse.arrayBuffer());
     assert.ok(archiveBytes.length > 0);
+
+    await jsonRequest(baseUrl, '/daily-review/action', {
+      method: 'POST', body: JSON.stringify({ type: 'reset' }),
+    });
 
     await writeFile(path.join(dataDirectory, 'notes.json'), '[]\n');
     await rm(path.join(dataDirectory, 'media'), { recursive: true, force: true });
@@ -116,6 +137,9 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(restored.added, 12);
     assert.equal(existsSync(path.join(dataDirectory, 'media', items[0].note.id, 'video.mp4')), true);
     assert.equal(await readFile(path.join(dataDirectory, 'media', items[0].note.id, '01.jpg'), 'utf8'), 'e2e-image-bytes');
+    const restoredReview = await jsonRequest(baseUrl, '/daily-review');
+    assert.equal(restoredReview.review.count, 3);
+    assert.equal(restoredReview.review.items.find((item) => item.note.id === reviewNoteId)?.status, 'reviewed', '完整归档应恢复回顾进度');
 
     await jsonRequest(baseUrl, `/notes/${items[1].note.id}`, {
       method: 'PATCH',
