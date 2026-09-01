@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kanbox",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "identifier": "com.kanbox.app",
   "build": {
     "beforeDevCommand": "npm run desktop:preview",
@@ -57,6 +57,7 @@
       "../scripts/lib/storage-location.mjs": "lib/storage-location.mjs",
       "../scripts/lib/ai-provider-presets.mjs": "lib/ai-provider-presets.mjs",
       "../scripts/lib/full-archive.mjs": "lib/full-archive.mjs",
+      "../scripts/lib/library-discovery.mjs": "lib/library-discovery.mjs",
       "../scripts/lib/sync-merge.mjs": "lib/sync-merge.mjs",
       "bin/kanbox-video-analyzer": "kanbox-video-analyzer",
       "bin/kanbox-node": "kanbox-node",

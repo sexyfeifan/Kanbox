@@ -76,7 +76,7 @@ async function buildManifest(root, { notes, deviceId, createdAt }) {
   return {
     schema: ARCHIVE_SCHEMA,
     formatVersion: ARCHIVE_FORMAT_VERSION,
-    appVersion: '0.8.4',
+    appVersion: '0.8.5',
     createdAt,
     sourceDeviceId: deviceId || '',
     noteCount: notes.length,

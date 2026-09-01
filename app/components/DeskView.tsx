@@ -65,12 +65,15 @@ import {
   batchProcessAi,
   subscribeToPipeline,
   getStorageInfo,
+  discoverLibraries,
+  previewLibraryRecovery,
+  restoreLibraryCandidate,
   setStorageLocation,
   restartApp,
   getAiPresets,
   reCategorizeNotes as reCategorizeAllNotes,
 } from '../lib/xhs-client';
-import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset } from '../lib/xhs-client';
+import type { AgentClient, LocalServiceHealth, LocalSetupInfo, AiSettings, PipelineStatus, StorageInfo, StorageLocation, AiPresets, ProviderPreset, LibraryDiscoveryResult, LibraryRecoveryPreview } from '../lib/xhs-client';
 import { renderMarkdown } from '../lib/markdown';
 import {
   acceptsExternalNoteDrag,
@@ -1792,6 +1795,11 @@ export function DeskView() {
   const [storageLoading, setStorageLoading] = useState(false);
   const [storageMessage, setStorageMessage] = useState('');
   const [customStoragePath, setCustomStoragePath] = useState('');
+  const [libraryDiscovery, setLibraryDiscovery] = useState<LibraryDiscoveryResult | null>(null);
+  const [recoveryPreview, setRecoveryPreview] = useState<LibraryRecoveryPreview | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const recoveryAutoScanRef = useRef(false);
 
   // AI 服务商预设
   const [aiPresets, setAiPresets] = useState<AiPresets | null>(null);
@@ -1900,6 +1908,23 @@ export function DeskView() {
     if (!seen && notes.length === 0) {
       setShowOnboarding(true);
     }
+  }, [notes.length, state.error, state.isLoading]);
+
+  // 当前资料明确加载为空时只自动扫描一次。发现旧资料后直接打开恢复区域，避免用户
+  // 把“指针丢失后的空库”误认为新安装；扫描范围由 sidecar 限制在 Kanbox 已知位置。
+  useEffect(() => {
+    if (state.isLoading || state.error || notes.length > 0 || recoveryAutoScanRef.current) return;
+    recoveryAutoScanRef.current = true;
+    void discoverLibraries().then((result) => {
+      setLibraryDiscovery(result);
+      if (result.recoverableCount > 0) {
+        setShowOnboarding(false);
+        setShowSettings(true);
+        setRecoveryMessage(`发现 ${result.recoverableCount} 个历史资料库，请先预览再恢复`);
+      }
+    }).catch(() => {
+      // 自动发现失败不遮挡主界面；用户仍可在设置中手动重试并查看错误。
+    });
   }, [notes.length, state.error, state.isLoading]);
 
   // Cleanup dismiss timers on unmount
@@ -2728,6 +2753,62 @@ export function DeskView() {
       }
     };
     input.click();
+  };
+
+  const handleDiscoverLibraries = async (openWhenFound = false) => {
+    setRecoveryLoading(true);
+    setRecoveryMessage('');
+    try {
+      const result = await discoverLibraries();
+      setLibraryDiscovery(result);
+      setRecoveryPreview(null);
+      if (result.recoverableCount === 0) {
+        setRecoveryMessage('没有发现其他可恢复的 Kanbox 资料库');
+      } else if (openWhenFound) {
+        setShowOnboarding(false);
+        setShowSettings(true);
+        setRecoveryMessage(`发现 ${result.recoverableCount} 个可恢复候选，请预览后选择恢复`);
+      }
+      return result;
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : '资料库扫描失败');
+      return null;
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  const handlePreviewLibrary = async (candidateId: string) => {
+    setRecoveryLoading(true);
+    setRecoveryMessage('');
+    try {
+      setRecoveryPreview(await previewLibraryRecovery(candidateId));
+    } catch (error) {
+      setRecoveryPreview(null);
+      setRecoveryMessage(error instanceof Error ? error.message : '恢复预览失败');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  const handleRestoreDiscoveredLibrary = async () => {
+    if (!recoveryPreview || recoveryLoading) return;
+    const confirmed = window.confirm(`确认恢复“${recoveryPreview.candidate.name}”吗？恢复前会自动备份当前资料，现有内容不会被静默覆盖。`);
+    if (!confirmed) return;
+    setRecoveryLoading(true);
+    setRecoveryMessage('正在创建安全备份并恢复资料…');
+    try {
+      const result = await restoreLibraryCandidate(recoveryPreview.candidate.id);
+      setNotes(result.notes);
+      setRecoveryMessage(`恢复完成，当前共有 ${result.total} 条笔记`);
+      setRecoveryPreview(null);
+      setLibraryDiscovery(await discoverLibraries());
+      setDataInfo(await getDataInfo());
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : '资料库恢复失败');
+    } finally {
+      setRecoveryLoading(false);
+    }
   };
 
   const handleRepairNote = async (noteId: string) => {
@@ -4128,6 +4209,65 @@ export function DeskView() {
                   <p style={{ fontSize: 10, color: '#9A958D', marginTop: 6, textAlign: 'center' }}>
                     .kanbox 包含全部图片和视频；跨设备恢复会按修订号合并，不覆盖较新的本机修改
                   </p>
+                </div>
+
+                {/* Library discovery and recovery */}
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 600, color: '#3A3840', margin: 0 }}>查找旧资料库</h3>
+                    <button
+                      onClick={() => void handleDiscoverLibraries()}
+                      disabled={recoveryLoading}
+                      style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid rgba(73,56,28,0.08)', background: '#F7F5F0', color: '#5E5A54', fontSize: 10.5, fontWeight: 600, cursor: recoveryLoading ? 'default' : 'pointer' }}
+                    >
+                      {recoveryLoading ? '扫描中…' : '扫描已知位置'}
+                    </button>
+                  </div>
+                  <p style={{ margin: '0 0 9px', fontSize: 10, lineHeight: 1.55, color: '#9A958D' }}>
+                    仅检查本机、iCloud、历史自定义位置、迁移快照和 Kanbox 归档，不遍历其他个人文件。
+                  </p>
+                  {libraryDiscovery && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {libraryDiscovery.candidates.filter((candidate) => !candidate.isCurrent).map((candidate) => (
+                        <div key={candidate.id} style={{ padding: '10px 11px', borderRadius: 10, border: '1px solid rgba(73,56,28,0.07)', background: candidate.status === 'damaged' ? 'rgba(181,106,91,0.05)' : 'rgba(130,153,135,0.05)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 600, color: '#4F4B46', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candidate.name}</div>
+                              <div style={{ marginTop: 3, fontSize: 9.5, color: '#9A958D', wordBreak: 'break-all' }}>{candidate.path}</div>
+                              <div style={{ marginTop: 4, fontSize: 9.5, color: candidate.status === 'damaged' ? '#B56A5B' : '#75857A' }}>
+                                {candidate.kind === 'archive' ? '完整归档 · 待校验' : `${candidate.noteCount ?? 0} 条笔记 · ${candidate.mediaFiles ?? 0} 个媒体`}
+                                {' · '}{formatBytes(candidate.size)}
+                              </div>
+                              {candidate.issue && <div style={{ marginTop: 3, fontSize: 9.5, color: '#B56A5B' }}>{candidate.issue}</div>}
+                            </div>
+                            <button
+                              onClick={() => void handlePreviewLibrary(candidate.id)}
+                              disabled={candidate.status === 'damaged' || recoveryLoading}
+                              style={{ alignSelf: 'center', flexShrink: 0, padding: '6px 10px', borderRadius: 7, border: 'none', background: '#829987', color: '#fff', fontSize: 10, fontWeight: 600, opacity: candidate.status === 'damaged' ? 0.4 : 1, cursor: candidate.status === 'damaged' ? 'default' : 'pointer' }}
+                            >预览</button>
+                          </div>
+                        </div>
+                      ))}
+                      {libraryDiscovery.recoverableCount === 0 && (
+                        <div style={{ padding: 10, borderRadius: 9, background: '#F7F5F0', fontSize: 10.5, color: '#8D8880' }}>没有发现其他可恢复资料库。</div>
+                      )}
+                    </div>
+                  )}
+                  {recoveryPreview && (
+                    <div style={{ marginTop: 9, padding: 12, borderRadius: 11, background: 'rgba(130,153,135,0.09)', border: '1px solid rgba(130,153,135,0.18)' }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#4F6254' }}>恢复预览：{recoveryPreview.candidate.name}</div>
+                      <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.65, color: '#666159' }}>
+                        当前 {recoveryPreview.currentNoteCount} 条 → 恢复后 {recoveryPreview.resultNoteCount} 条<br />
+                        新增 {recoveryPreview.added} · 更新 {recoveryPreview.updated} · 保留 {recoveryPreview.kept} · 冲突 {recoveryPreview.conflicts} · 跳过 {recoveryPreview.skipped}
+                      </div>
+                      <button
+                        onClick={() => void handleRestoreDiscoveredLibrary()}
+                        disabled={recoveryLoading}
+                        style={{ marginTop: 9, width: '100%', height: 34, borderRadius: 8, border: 'none', background: '#6F8675', color: '#fff', fontSize: 11, fontWeight: 700, cursor: recoveryLoading ? 'default' : 'pointer' }}
+                      >{recoveryLoading ? '恢复中…' : '创建安全备份并恢复'}</button>
+                    </div>
+                  )}
+                  {recoveryMessage && <p style={{ margin: '7px 0 0', fontSize: 10.5, color: recoveryMessage.includes('失败') ? '#B56A5B' : '#4F6254' }}>{recoveryMessage}</p>}
                 </div>
 
                 {/* Data Integrity */}

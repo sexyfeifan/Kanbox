@@ -173,3 +173,17 @@ test('空资料库切换仍迁移设置，而不是错误回退到其他旧目�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('资料恢复可保留当前目标设置，避免旧 API 配置覆盖新配置', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'kanbox-storage-preserve-settings-'));
+  const source = path.join(root, 'old-library');
+  const target = path.join(root, 'current-library');
+  try {
+    await seedLibrary(source, [NOTE_A], 'old');
+    await seedLibrary(target, [NOTE_B], 'current');
+    await migrateDataDirectory(source, target, { preserveTargetSettings: true });
+    assert.equal(JSON.parse(await readFile(path.join(target, 'settings.json'), 'utf8')).owner, 'current');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

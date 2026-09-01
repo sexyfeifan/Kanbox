@@ -29,6 +29,10 @@ export function storagePointerPath() {
   return path.join(localDefaultDataDirectory(), 'storage-location.json');
 }
 
+export function storageHistoryPath() {
+  return path.join(localDefaultDataDirectory(), 'storage-history.json');
+}
+
 export function isIcloudAvailable() {
   return existsSync(icloudDriveRoot());
 }
@@ -70,6 +74,32 @@ export function writeStoragePointer(location, customPath) {
   const temporaryPath = `${pointerPath}.${process.pid}.${randomUUID()}.next`;
   writeFileSync(temporaryPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
   renameSync(temporaryPath, pointerPath);
+  const selectedPath = location === 'custom' ? record.path
+    : location === 'icloud' ? icloudKanboxPath()
+      : localDefaultDataDirectory();
+  recordStorageLocation(selectedPath);
+}
+
+export function readStorageHistory() {
+  try {
+    const parsed = JSON.parse(readFileSync(storageHistoryPath(), 'utf8'));
+    return Array.isArray(parsed?.paths)
+      ? parsed.paths.filter((item) => typeof item === 'string' && path.isAbsolute(item)).slice(-20)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recordStorageLocation(directory) {
+  const resolved = path.resolve(String(directory || ''));
+  if (!resolved) return;
+  mkdirSync(localDefaultDataDirectory(), { recursive: true });
+  const paths = [...readStorageHistory().filter((item) => path.resolve(item) !== resolved), resolved].slice(-20);
+  const historyPath = storageHistoryPath();
+  const temporaryPath = `${historyPath}.${process.pid}.${randomUUID()}.next`;
+  writeFileSync(temporaryPath, `${JSON.stringify({ version: 1, paths, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+  renameSync(temporaryPath, historyPath);
 }
 
 export function clearStoragePointer() {
@@ -161,7 +191,7 @@ async function copyKnownData(from, to) {
   if (!existsSync(from)) return;
   await mkdir(to, { recursive: true });
   for (const name of await readdir(from)) {
-    if (name === 'storage-location.json' || MIGRATION_CONTROL_NAME.test(name)) continue;
+    if (name === 'storage-location.json' || name === 'storage-history.json' || MIGRATION_CONTROL_NAME.test(name)) continue;
     const source = path.join(from, name);
     const info = await lstat(source);
     // 资料库不跟随符号链接，避免迁移越出用户选择的目录。
@@ -172,7 +202,7 @@ async function copyKnownData(from, to) {
 
 async function copySupplementalData(from, to) {
   if (!existsSync(from)) return;
-  const known = new Set([...DATA_FILES, ...DATA_DIRECTORIES, 'storage-location.json']);
+  const known = new Set([...DATA_FILES, ...DATA_DIRECTORIES, 'storage-location.json', 'storage-history.json']);
   for (const name of await readdir(from)) {
     if (known.has(name) || MIGRATION_CONTROL_NAME.test(name)) continue;
     const source = path.join(from, name);
@@ -224,7 +254,9 @@ export async function migrateDataDirectory(sourceDir, targetDir, options = {}) {
       writeJson(path.join(stage, 'sync-meta.json'), mergeSyncMeta(targetMeta, sourceMeta)),
     ]);
     // 当前活动资料库设置优先；媒体和历史备份做并集合并。
-    if (existsSync(path.join(source, 'settings.json'))) await cp(path.join(source, 'settings.json'), path.join(stage, 'settings.json'), { force: true });
+    if (!options.preserveTargetSettings && existsSync(path.join(source, 'settings.json'))) {
+      await cp(path.join(source, 'settings.json'), path.join(stage, 'settings.json'), { force: true });
+    }
     for (const name of DATA_DIRECTORIES) {
       if (existsSync(path.join(source, name))) await cp(path.join(source, name), path.join(stage, name), { recursive: true, force: true });
     }

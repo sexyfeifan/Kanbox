@@ -815,8 +815,67 @@ export type StorageMigrationResult = {
   conflicts?: number;
 };
 
+export type LibraryCandidate = {
+  id: string;
+  kind: 'directory' | 'archive';
+  path: string;
+  name: string;
+  status: 'healthy' | 'warning' | 'damaged' | 'unverified';
+  noteCount: number | null;
+  invalidNotes?: number;
+  mediaFiles: number | null;
+  size: number;
+  lastUpdatedAt: string;
+  issue: string;
+  isCurrent: boolean;
+};
+
+export type LibraryDiscoveryResult = {
+  ok: boolean;
+  currentDirectory: string;
+  candidates: LibraryCandidate[];
+  recoverableCount: number;
+};
+
+export type LibraryRecoveryPreview = {
+  candidate: LibraryCandidate;
+  currentNoteCount: number;
+  candidateNoteCount: number;
+  resultNoteCount: number;
+  added: number;
+  updated: number;
+  kept: number;
+  conflicts: number;
+  skipped: number;
+  groupCount: number;
+  archiveVerified: boolean;
+};
+
 export async function getStorageInfo(): Promise<StorageInfo> {
   return fetchLocalApi<{ ok: boolean } & StorageInfo>('/storage', undefined, 8000);
+}
+
+export async function discoverLibraries(): Promise<LibraryDiscoveryResult> {
+  return fetchLocalApi<LibraryDiscoveryResult>('/libraries/discover', undefined, 30_000);
+}
+
+export async function previewLibraryRecovery(candidateId: string): Promise<LibraryRecoveryPreview> {
+  const payload = await fetchLocalApi<{ ok: boolean; preview: LibraryRecoveryPreview }>(
+    '/libraries/preview',
+    { method: 'POST', body: JSON.stringify({ candidateId }) },
+    120_000,
+  );
+  return payload.preview;
+}
+
+export async function restoreLibraryCandidate(candidateId: string): Promise<{ ok: boolean; notes: Note[]; total: number }> {
+  const payload = await fetchLocalApi<{ ok: boolean; notes: RawNote[]; total: number }>(
+    '/libraries/restore',
+    { method: 'POST', body: JSON.stringify({ candidateId }) },
+    24 * 60 * 60_000,
+  );
+  const normalized = normalizeRemoteNotes(payload);
+  return { ok: payload.ok, notes: normalized.notes, total: normalized.notes.length };
 }
 
 export async function setStorageLocation(

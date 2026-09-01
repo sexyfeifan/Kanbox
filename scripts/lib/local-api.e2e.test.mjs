@@ -34,6 +34,17 @@ async function jsonRequest(baseUrl, pathname, init = {}) {
 test('local API batch import and full media archive restore work end to end', { timeout: 60_000 }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'kanbox-e2e-'));
   const dataDirectory = path.join(root, 'data');
+  const discoveredLibrary = `${dataDirectory}.kanbox-before-migration-e2e`;
+  const discoveredNote = {
+    id: 'ffffffffffffffffffffffff',
+    title: '自动发现的旧资料',
+    savedAt: '2025-01-01T00:00:00.000Z',
+    sourceUrl: 'https://www.xiaohongshu.com/explore/ffffffffffffffffffffffff',
+  };
+  await mkdir(path.join(discoveredLibrary, 'media', discoveredNote.id), { recursive: true });
+  await writeFile(path.join(discoveredLibrary, 'notes.json'), `${JSON.stringify([discoveredNote])}\n`);
+  await writeFile(path.join(discoveredLibrary, 'workspace.json'), '{"groups":[],"noteGroupMap":{},"knownNoteIds":[]}\n');
+  await writeFile(path.join(discoveredLibrary, 'media', discoveredNote.id, 'old.jpg'), 'old-media');
   const port = 20_000 + Math.floor(Math.random() * 20_000);
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [path.join(projectRoot, 'scripts/local-api.mjs')], {
@@ -120,6 +131,27 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(staleRestoreResponse.ok, true, staleRestore.error);
     assert.equal(staleRestore.notes.some((note) => note.id === items[0].note.id), false, '旧归档不能复活已删除笔记');
     assert.equal(staleRestore.notes.find((note) => note.id === items[1].note.id)?.title, '本机较新的标题');
+
+    const discovery = await jsonRequest(baseUrl, '/libraries/discover');
+    const candidate = discovery.candidates.find((item) => item.path === discoveredLibrary);
+    assert.ok(candidate, '应发现当前资料库旁的迁移快照');
+    await assert.rejects(
+      jsonRequest(baseUrl, '/libraries/preview', {
+        method: 'POST', body: JSON.stringify({ candidateId: '../../untrusted-path' }),
+      }),
+      /不存在或已移动/,
+    );
+    const preview = await jsonRequest(baseUrl, '/libraries/preview', {
+      method: 'POST', body: JSON.stringify({ candidateId: candidate.id }),
+    });
+    assert.equal(preview.preview.added, 1);
+    assert.equal(preview.preview.resultNoteCount, staleRestore.notes.length + 1);
+    const recoveredLibrary = await jsonRequest(baseUrl, '/libraries/restore', {
+      method: 'POST', body: JSON.stringify({ candidateId: candidate.id }),
+    });
+    assert.equal(recoveredLibrary.notes.some((note) => note.id === discoveredNote.id), true);
+    assert.equal(await readFile(path.join(dataDirectory, 'media', discoveredNote.id, 'old.jpg'), 'utf8'), 'old-media');
+    assert.ok(recoveredLibrary.safetyArchive, '恢复非空资料库前必须自动创建完整安全归档');
   } catch (error) {
     error.message = `${error.message}\nlocal-api logs:\n${logs}`;
     throw error;

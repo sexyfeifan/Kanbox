@@ -45,12 +45,14 @@ import {
   localDefaultDataDirectory,
   migrateDataDirectory,
   migrateDataIfNeeded,
+  readStorageHistory,
   resolveDataDirectory,
   storageInfo,
   writeStoragePointer,
 } from './lib/storage-location.mjs';
 import { aiPresets, validateProviderPresets } from './lib/ai-provider-presets.mjs';
-import { createFullArchive, restoreFullArchive } from './lib/full-archive.mjs';
+import { createFullArchive, extractAndVerifyArchive, restoreFullArchive } from './lib/full-archive.mjs';
+import { discoverLibraries, findCandidate } from './lib/library-discovery.mjs';
 import {
   initializeRecord,
   mergeNoteCollections,
@@ -277,7 +279,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.4';
+const BACKUP_VERSION = '0.8.5';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -823,6 +825,96 @@ async function createArchiveBackup() {
     ...result,
     downloadUrl: `/data/archive/download/${encodeURIComponent(result.name)}`,
   };
+}
+
+async function discoverLibraryCandidates() {
+  return discoverLibraries({ currentDirectory: dataDirectory, knownDirectories: readStorageHistory() });
+}
+
+async function resolveLibraryCandidate(id) {
+  const candidates = await discoverLibraryCandidates();
+  const candidate = findCandidate(candidates, String(id || ''));
+  if (!candidate) throw new Error('资料库候选不存在或已移动，请重新扫描');
+  if (candidate.isCurrent) throw new Error('当前资料库不需要恢复');
+  if (candidate.status === 'damaged') throw new Error(candidate.issue || '候选资料库已损坏');
+  return candidate;
+}
+
+async function readCandidatePayload(candidate) {
+  if (candidate.kind === 'directory') {
+    return {
+      notes: JSON.parse(await readFile(path.join(candidate.path, 'notes.json'), 'utf8')),
+      workspace: existsSync(path.join(candidate.path, 'workspace.json'))
+        ? JSON.parse(await readFile(path.join(candidate.path, 'workspace.json'), 'utf8'))
+        : {},
+      cleanup: async () => {},
+    };
+  }
+  const extracted = await extractAndVerifyArchive(candidate.path);
+  try {
+    return {
+      notes: JSON.parse(await readFile(path.join(extracted.tempDirectory, 'notes.json'), 'utf8')),
+      workspace: JSON.parse(await readFile(path.join(extracted.tempDirectory, 'workspace.json'), 'utf8')),
+      cleanup: () => rm(extracted.tempDirectory, { recursive: true, force: true }),
+      manifest: extracted.manifest,
+    };
+  } catch (error) {
+    await rm(extracted.tempDirectory, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function previewLibraryRecovery(candidateId) {
+  const candidate = await resolveLibraryCandidate(candidateId);
+  const payload = await readCandidatePayload(candidate);
+  try {
+    if (!Array.isArray(payload.notes)) throw new Error('候选资料库 notes.json 格式不正确');
+    const [currentNotes, currentWorkspace] = await Promise.all([readNotes(), readWorkspace()]);
+    const merged = mergeNoteCollections(currentNotes, payload.notes);
+    const workspace = mergeWorkspaceRecords(currentWorkspace, payload.workspace);
+    return {
+      candidate,
+      currentNoteCount: currentNotes.length,
+      candidateNoteCount: payload.notes.length,
+      resultNoteCount: merged.notes.length,
+      added: merged.stats.added,
+      updated: merged.stats.updated,
+      kept: merged.stats.kept + merged.stats.unchanged,
+      conflicts: merged.stats.conflicts,
+      skipped: merged.stats.invalid,
+      groupCount: Array.isArray(workspace.groups) ? workspace.groups.length : 0,
+      archiveVerified: candidate.kind === 'archive',
+    };
+  } finally {
+    await payload.cleanup();
+  }
+}
+
+async function restoreLibraryCandidate(candidateId) {
+  const candidate = await resolveLibraryCandidate(candidateId);
+  const [currentNotes, currentWorkspace, syncState] = await Promise.all([readNotes(), readWorkspace(), getSyncState()]);
+  const safetyArchive = currentNotes.length > 0
+    ? await createFullArchive({
+        dataDirectory,
+        notes: currentNotes,
+        workspace: currentWorkspace,
+        deviceId: syncState.deviceId,
+        destinationDirectory: path.join(dataDirectory, 'backups'),
+      })
+    : null;
+  const result = candidate.kind === 'directory'
+    ? await migrateDataDirectory(candidate.path, dataDirectory, { preserveTargetSettings: true })
+    : await restoreFullArchive({
+        archivePath: candidate.path,
+        dataDirectory,
+        localNotes: currentNotes,
+        localWorkspace: currentWorkspace,
+        writeNotes,
+        writeWorkspace,
+      });
+  const notes = await readNotes();
+  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  return { ok: true, candidate, safetyArchive, result, notes, total: notes.length };
 }
 
 async function receiveArchiveUpload(request) {
@@ -2009,6 +2101,29 @@ const server = createServer(async (request, response) => {
     // 存储位置（iCloud / 本机 / 自定义）读取与切换（v0.7.1）
     if (request.method === 'GET' && url.pathname === '/storage') {
       sendJson(request, response, 200, { ok: true, ...storageInfo(dataDirectory) });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/libraries/discover') {
+      const candidates = await discoverLibraryCandidates();
+      sendJson(request, response, 200, {
+        ok: true,
+        currentDirectory: dataDirectory,
+        candidates,
+        recoverableCount: candidates.filter((candidate) => !candidate.isCurrent && candidate.status !== 'damaged').length,
+      });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/libraries/preview') {
+      const body = await readRequestBody(request);
+      sendJson(request, response, 200, { ok: true, preview: await previewLibraryRecovery(body?.candidateId) });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/libraries/restore') {
+      const body = await readRequestBody(request);
+      sendJson(request, response, 200, await queueMutation(() => restoreLibraryCandidate(body?.candidateId)));
       return;
     }
 

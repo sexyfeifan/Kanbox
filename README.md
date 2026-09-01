@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.4-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.5-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.5 更新
+
+- **旧资料库自动发现** — 受限扫描本机默认目录、iCloud、旧版目录、历史自定义位置、0.8.4 迁移快照与本地完整归档；不会遍历整台电脑或读取无关文件
+- **候选健康评估** — 每个资料库显示路径、笔记数、媒体数、体积、最后更新时间和损坏状态；无法解析的数据保持可见但禁止直接恢复
+- **恢复前差异预览** — 恢复前计算当前数量、恢复后数量、新增、更新、保留、冲突、无效记录和分组数量；`.kanbox` 归档必须先完成 SHA-256 校验
+- **空库主动找回** — 当前资料明确加载为空时自动扫描一次，发现历史资料后直接打开恢复区域，避免把存储指针丢失误认为新安装
+- **安全恢复闭环** — 非空资料库恢复前自动创建完整归档；目录恢复沿用事务迁移和旧目标快照，候选 ID 每次重新扫描确认，拒绝任意路径注入
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.5
 
 ## 🆕 v0.8.4 更新
 
@@ -513,6 +522,9 @@ npm run build
 | `GET` | `/media/:noteId/:file` | 读取本地图片或视频 |
 | `GET` | `/storage` | 当前存储位置信息（iCloud / 本机 / 自定义） |
 | `POST` | `/storage/location` | 切换存储位置（含数据迁移） |
+| `GET` | `/libraries/discover` | 扫描 Kanbox 已知位置、迁移快照与本地完整归档 |
+| `POST` | `/libraries/preview` | 校验候选并预览恢复后的新增、更新和冲突数量 |
+| `POST` | `/libraries/restore` | 自动备份当前资料后安全合并恢复候选资料库 |
 | `GET` | `/ai/settings` | 读取 AI 配置 |
 | `POST` | `/ai/settings` | 保存 AI 配置 |
 | `GET` | `/ai/presets` | 推荐服务商/模型预设 |
