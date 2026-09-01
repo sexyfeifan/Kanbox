@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.13-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.14-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.14 更新
+
+- **资料完整性批量修复** — 设置页可一键修复全部缺失图片或视频的笔记，无需逐条点击
+- **受控并发** — 媒体恢复使用 3 路并发准备，不再长时间占用全局写队列
+- **单条失败隔离** — 某条笔记无可用恢复源时仅记录该条失败，其他笔记继续修复
+- **修复后二次校验** — 下载结束后重新检查本地文件，仍缺失时明确报错，不再误报成功
+- **批量结果可见** — 界面分别显示成功和失败数量，并立即刷新完整性状态
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.14
 
 ## 🆕 v0.8.13 更新
 

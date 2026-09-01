@@ -120,6 +120,23 @@ test('local API batch import and full media archive restore work end to end', { 
     assert.equal(partialBatch.failed, 1);
     assert.equal(partialBatch.notes.length, 12, '单条失败不应回滚或重复整批数据');
 
+    const cleanIntegrity = await jsonRequest(baseUrl, '/data/integrity');
+    assert.equal(cleanIntegrity.brokenNotes.length, 0);
+    const beforeIntegrityDamage = await jsonRequest(baseUrl, '/notes');
+    await writeFile(path.join(dataDirectory, 'notes.json'), `${JSON.stringify(beforeIntegrityDamage.notes.map((note) => note.id === items[0].note.id
+      ? { ...note, imageUrls: [`${baseUrl}/media/${items[0].note.id}/missing.jpg`], sourceImageUrls: [] }
+      : note))}\n`);
+    const brokenIntegrity = await jsonRequest(baseUrl, '/data/integrity');
+    assert.equal(brokenIntegrity.brokenNotes.length, 1);
+    const repairAll = await jsonRequest(baseUrl, '/data/integrity/repair-all', { method: 'POST', body: '{}' });
+    assert.equal(repairAll.requested, 1);
+    assert.equal(repairAll.repaired, 0);
+    assert.equal(repairAll.failed, 1, '无恢复源的笔记应单独报错，不得误报修复成功');
+    assert.equal(repairAll.notes.length, 12, '修复失败不得损坏资料库');
+    await writeFile(path.join(dataDirectory, 'notes.json'), `${JSON.stringify(repairAll.notes.map((note) => note.id === items[0].note.id
+      ? { ...note, imageUrls: [], sourceImageUrls: [] }
+      : note))}\n`);
+
     const singleStatus = await jsonRequest(baseUrl, `/notes/${items[0].note.id}`, {
       method: 'PATCH', body: JSON.stringify({ favorite: true, readState: 'later' }),
     });

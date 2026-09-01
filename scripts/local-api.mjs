@@ -290,7 +290,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.13';
+const BACKUP_VERSION = '0.8.14';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -730,12 +730,8 @@ function getLastImportedAt(notes) {
   return new Date(timestamps.reduce((a, b) => Math.max(a, b), -Infinity)).toISOString();
 }
 
-async function checkDataIntegrity() {
-  const notes = await readNotes();
-  const brokenNotes = [];
-
-  for (const note of notes) {
-    const missingFiles = [];
+function missingStoredMedia(note) {
+  const missingFiles = [];
     const noteMediaDir = path.join(mediaDirectory, note.id);
 
     if (Array.isArray(note.imageUrls)) {
@@ -753,10 +749,17 @@ async function checkDataIntegrity() {
       if (!existsSync(videoPath)) missingFiles.push('video.mp4');
     }
 
-    if (missingFiles.length > 0) {
-      brokenNotes.push({ id: note.id, title: note.title || '未命名笔记', missingFiles });
-    }
-  }
+  return [...new Set(missingFiles)];
+}
+
+async function checkDataIntegrity() {
+  const notes = await readNotes();
+  const brokenNotes = notes.flatMap((note) => {
+    const missingFiles = missingStoredMedia(note);
+    return missingFiles.length > 0
+      ? [{ id: note.id, title: note.title || '未命名笔记', missingFiles }]
+      : [];
+  });
 
   return {
     totalNotes: notes.length,
@@ -765,12 +768,7 @@ async function checkDataIntegrity() {
   };
 }
 
-async function repairNoteIntegrity(noteId) {
-  const notes = await readNotes();
-  const noteIndex = notes.findIndex((note) => note.id === noteId);
-  if (noteIndex < 0) return null;
-
-  const note = notes[noteIndex];
+async function prepareNoteIntegrityRepair(note) {
   let repaired = await localizeNoteMedia(note, {
     mediaDirectory,
     publicBaseUrl,
@@ -788,14 +786,61 @@ async function repairNoteIntegrity(noteId) {
     });
   }
 
-  const updatedNotes = [...notes];
-  updatedNotes[noteIndex] = repaired;
-  await writeNotes(updatedNotes);
-  broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+  const remainingFiles = missingStoredMedia(repaired);
+  if (remainingFiles.length > 0) {
+    throw new Error(`修复后仍缺少 ${remainingFiles.length} 个文件`);
+  }
+  return repaired;
+}
 
+async function repairNoteIntegrity(noteId) {
+  const snapshot = await readNotes();
+  const note = snapshot.find((item) => item.id === noteId);
+  if (!note) return null;
+  const repaired = await prepareNoteIntegrityRepair(note);
+
+  return queueMutation(async () => {
+    const notes = await readNotes();
+    const noteIndex = notes.findIndex((item) => item.id === noteId);
+    if (noteIndex < 0) return null;
+
+    const updatedNotes = [...notes];
+    updatedNotes[noteIndex] = repaired;
+    await writeNotes(updatedNotes);
+    broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+
+    return { notes: updatedNotes, note: repaired };
+  });
+}
+
+async function repairAllNoteIntegrity() {
+  const notes = await readNotes();
+  const broken = notes.filter((note) => missingStoredMedia(note).length > 0);
+  const prepared = await mapConcurrent(broken, 3, async (note) => {
+    try {
+      return { ok: true, id: note.id, title: note.title || '未命名笔记', note: await prepareNoteIntegrityRepair(note) };
+    } catch (error) {
+      return { ok: false, id: note.id, title: note.title || '未命名笔记', error: error instanceof Error ? error.message : '修复失败' };
+    }
+  });
+  const replacements = new Map(prepared.filter((item) => item.ok).map((item) => [item.id, item.note]));
+
+  const updatedNotes = await queueMutation(async () => {
+    const current = await readNotes();
+    if (replacements.size === 0) return current;
+    const merged = current.map((note) => replacements.get(note.id) || note);
+    await writeNotes(merged);
+    broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
+    return merged;
+  });
+  const integrity = await checkDataIntegrity();
   return {
     notes: updatedNotes,
-    note: repaired,
+    requested: broken.length,
+    repaired: prepared.filter((item) => item.ok).length,
+    failed: prepared.filter((item) => !item.ok).length,
+    results: prepared.map((item) => ({ ok: item.ok, id: item.id, title: item.title, ...(item.error ? { error: item.error } : {}) })),
+    integrity,
   };
 }
 
@@ -2438,12 +2483,17 @@ const server = createServer(async (request, response) => {
       if (!body.noteId || typeof body.noteId !== 'string') {
         throw new Error('缺少 noteId 参数');
       }
-      const result = await queueMutation(() => repairNoteIntegrity(body.noteId));
+      const result = await repairNoteIntegrity(body.noteId);
       if (!result) {
         sendJson(request, response, 404, { ok: false, error: '笔记不存在' });
         return;
       }
       sendJson(request, response, 200, result);
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/data/integrity/repair-all') {
+      sendJson(request, response, 200, await repairAllNoteIntegrity());
       return;
     }
 

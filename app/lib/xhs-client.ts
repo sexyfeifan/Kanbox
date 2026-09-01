@@ -662,6 +662,24 @@ export async function repairNote(noteId: string): Promise<{ notes: Note[]; note:
   return { notes: response.notes, note };
 }
 
+export type IntegrityRepairAllResult = {
+  notes: Note[];
+  requested: number;
+  repaired: number;
+  failed: number;
+  results: Array<{ ok: boolean; id: string; title: string; error?: string }>;
+  integrity: IntegrityResult;
+};
+
+export async function repairAllNotes(): Promise<IntegrityRepairAllResult> {
+  const payload = await fetchLocalApi<Omit<IntegrityRepairAllResult, 'notes'> & { notes: RawNote[] }>(
+    '/data/integrity/repair-all',
+    { method: 'POST' },
+    10 * 60 * 1000,
+  );
+  return { ...payload, notes: normalizeRemoteNotes(payload).notes };
+}
+
 export async function getAllTags(): Promise<TagInfo[]> {
   const data = await fetchLocalApi<{ tags: TagInfo[] }>('/tags');
   return data.tags || [];

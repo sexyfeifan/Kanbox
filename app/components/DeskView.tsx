@@ -60,6 +60,7 @@ import {
   restoreFullArchive as restoreFullArchiveBackup,
   checkDataIntegrity,
   repairNote,
+  repairAllNotes,
   getAllTags,
   renameTag,
   deleteTag,
@@ -1815,6 +1816,7 @@ export function DeskView() {
   const [showSettings, setShowSettings] = useState(false);
   const [dataInfo, setDataInfo] = useState<{ dataDirectory: string; notesCount: number; mediaSize: number; backupCount: number } | null>(null);
   const [integrityResult, setIntegrityResult] = useState<{ totalNotes: number; healthyNotes: number; brokenNotes: Array<{ id: string; title: string; missingFiles: string[] }> } | null>(null);
+  const [repairingIntegrity, setRepairingIntegrity] = useState(false);
   const [checking, setChecking] = useState(false);
   const [backing, setBacking] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -2950,6 +2952,27 @@ export function DeskView() {
     } catch {
       setImportFeedback({ phase: 'error', title: '修复失败', message: '无法重新下载文件' });
       dismissImportFeedback('error', 3200);
+    }
+  };
+
+  const handleRepairAllNotes = async () => {
+    if (repairingIntegrity || !integrityResult?.brokenNotes.length) return;
+    setRepairingIntegrity(true);
+    try {
+      const result = await repairAllNotes();
+      setNotes(result.notes);
+      setIntegrityResult(result.integrity);
+      setImportFeedback({
+        phase: result.failed > 0 ? 'error' : 'complete',
+        title: result.failed > 0 ? '批量修复部分完成' : '批量修复完成',
+        message: `成功 ${result.repaired} 条${result.failed > 0 ? `，失败 ${result.failed} 条` : ''}`,
+      });
+      dismissImportFeedback(result.failed > 0 ? 'error' : 'complete', 3600);
+    } catch (error) {
+      setImportFeedback({ phase: 'error', title: '批量修复失败', message: error instanceof Error ? error.message : '请稍后重试' });
+      dismissImportFeedback('error', 3600);
+    } finally {
+      setRepairingIntegrity(false);
     }
   };
 
@@ -4481,13 +4504,18 @@ export function DeskView() {
                           ? `✓ 全部 ${integrityResult.totalNotes} 条笔记数据完整`
                           : `${integrityResult.brokenNotes.length} 条笔记有缺失文件`}
                       </div>
+                      {integrityResult.brokenNotes.length > 0 && (
+                        <button onClick={() => void handleRepairAllNotes()} disabled={repairingIntegrity} style={{ width: '100%', height: 32, marginBottom: 6, borderRadius: 7, border: 'none', background: '#6F8675', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: repairingIntegrity ? 'default' : 'pointer' }}>
+                          {repairingIntegrity ? '正在并行修复…' : `一键修复全部（${integrityResult.brokenNotes.length} 条）`}
+                        </button>
+                      )}
                       {integrityResult.brokenNotes.map(note => (
                         <div key={note.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid rgba(0,0,0,0.04)' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 11, color: '#5E5A54', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.title}</div>
                             <div style={{ fontSize: 9, color: '#B56A5B' }}>{note.missingFiles.length} 个文件缺失</div>
                           </div>
-                          <button onClick={() => void handleRepairNote(note.id)} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(130,153,135,0.12)', color: '#4F6254', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>
+                          <button onClick={() => void handleRepairNote(note.id)} disabled={repairingIntegrity} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: 'rgba(130,153,135,0.12)', color: '#4F6254', fontSize: 10, fontWeight: 600, cursor: repairingIntegrity ? 'default' : 'pointer' }}>
                             修复
                           </button>
                         </div>
