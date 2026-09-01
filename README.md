@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="Tauri" />
 <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
 <img src="https://img.shields.io/badge/License-AGPL--3.0-blue" alt="License" />
-<img src="https://img.shields.io/badge/Version-0.8.14-green" alt="Version" />
+<img src="https://img.shields.io/badge/Version-0.8.15-green" alt="Version" />
 
 <br /><br />
 
@@ -27,6 +27,15 @@
 **不依赖任何爬虫工具，也不用你的账号登录态去发请求。** 解析走的是匿名访问单篇公开页面，由你手动触发 —— 不带 Cookie、没有收藏夹抓取、没有定时任务；批量模式也只处理你主动粘贴的最多 50 条公开笔记链接。
 
 数据默认存在你自己的电脑上，不上传云端；可选接入你指定的在线大模型做摘要与知识拓展（不填 key 就默认用本地摘要），数据目录也可切到 iCloud 实现换机自动复原。
+
+## 🆕 v0.8.15 更新
+
+- **并发编辑不丢失** — 完整性修复提交时只合并媒体派生字段，保留下载期间新修改的标题、标签、分类和阅读状态
+- **媒体路径边界** — 本地文件检查仅允许当前笔记目录的单层文件，越界与编码穿越引用会显式标记异常
+- **大数量完整性性能** — 新增 2 万媒体引用线性扫描压力测试，防止重复引用导致性能退化
+- **版本漂移门禁** — CI 自动比对桌面端、Cargo、扩展、备份、归档和 README 版本号，任一处不一致即失败
+- **发布流程现代化** — GitHub Actions 切换到 Node 24 运行时的 checkout、setup-node 与 release action，消除已弃用的 Node 20 依赖
+- **版本号对齐** — 桌面应用、浏览器扩展、备份 schema、完整归档清单与安装包统一升至 v0.8.15
 
 ## 🆕 v0.8.14 更新
 

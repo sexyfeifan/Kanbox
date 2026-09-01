@@ -70,6 +70,7 @@ import {
   stampRecord,
 } from './lib/sync-merge.mjs';
 import { autoBackupSlot, autoBackupsToRemove, buildMetadataBackup } from './lib/metadata-backup.mjs';
+import { findMissingStoredMedia, mergeRepairedMedia } from './lib/integrity-repair.mjs';
 
 const DEFAULT_PORT = 4318;
 const MCP_SERVER_NAME = 'kanbox-notes';
@@ -290,7 +291,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.14';
+const BACKUP_VERSION = '0.8.15';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
@@ -731,25 +732,7 @@ function getLastImportedAt(notes) {
 }
 
 function missingStoredMedia(note) {
-  const missingFiles = [];
-    const noteMediaDir = path.join(mediaDirectory, note.id);
-
-    if (Array.isArray(note.imageUrls)) {
-      for (const imageUrl of note.imageUrls) {
-        const match = imageUrl.match(/\/media\/[0-9a-f]{24}\/(.+)$/i);
-        if (match) {
-          const filePath = path.join(noteMediaDir, match[1]);
-          if (!existsSync(filePath)) missingFiles.push(match[1]);
-        }
-      }
-    }
-
-    if (note.type === 'video') {
-      const videoPath = path.join(noteMediaDir, 'video.mp4');
-      if (!existsSync(videoPath)) missingFiles.push('video.mp4');
-    }
-
-  return [...new Set(missingFiles)];
+  return findMissingStoredMedia(note, { mediaDirectory, exists: existsSync });
 }
 
 async function checkDataIntegrity() {
@@ -805,7 +788,7 @@ async function repairNoteIntegrity(noteId) {
     if (noteIndex < 0) return null;
 
     const updatedNotes = [...notes];
-    updatedNotes[noteIndex] = repaired;
+    updatedNotes[noteIndex] = mergeRepairedMedia(notes[noteIndex], repaired);
     await writeNotes(updatedNotes);
     broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
 
@@ -828,7 +811,9 @@ async function repairAllNoteIntegrity() {
   const updatedNotes = await queueMutation(async () => {
     const current = await readNotes();
     if (replacements.size === 0) return current;
-    const merged = current.map((note) => replacements.get(note.id) || note);
+    const merged = current.map((note) => replacements.has(note.id)
+      ? mergeRepairedMedia(note, replacements.get(note.id))
+      : note);
     await writeNotes(merged);
     broadcastUpdate({ type: 'notes-changed', timestamp: new Date().toISOString() });
     return merged;
