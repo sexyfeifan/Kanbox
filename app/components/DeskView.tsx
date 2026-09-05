@@ -326,7 +326,7 @@ function ExpandedCard({
   note: Note;
   onClose: () => void;
   onDelete: () => void;
-  onUpdate: (updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later'; resolveSyncConflict?: boolean }) => void;
+  onUpdate: (updates: { title?: string; tags?: string[]; favorite?: boolean; readState?: 'unread' | 'read' | 'later'; resolveSyncConflict?: boolean }) => Promise<void>;
   onTranscribe: () => Promise<void>;
   onNoteChanged: (note: Note) => void;
   isDeleting: boolean;
@@ -335,6 +335,7 @@ function ExpandedCard({
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
   const [showOcr, setShowOcr] = useState(false);
   const [readerTab, setReaderTab] = useState<'note' | 'transcript'>(
     note.type === 'video' ? 'transcript' : 'note',
@@ -594,15 +595,23 @@ function ExpandedCard({
             }}>
               <AlertTriangle size={16} style={{ marginTop: 1, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700 }}>检测到跨设备冲突</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700 }}>检测到资料合并冲突</div>
                 <div style={{ marginTop: 3, fontSize: 10.5, lineHeight: 1.5 }}>
                   已自动合并；涉及字段：{(note.syncConflictFields || []).join('、') || '内容'}。请检查当前内容后确认。
                 </div>
               </div>
-              <button type="button" onClick={() => onUpdate({ resolveSyncConflict: true })} style={{
+              <button type="button" disabled={resolvingConflict} onClick={async () => {
+                if (resolvingConflict) return;
+                setResolvingConflict(true);
+                try {
+                  await onUpdate({ resolveSyncConflict: true });
+                } finally {
+                  setResolvingConflict(false);
+                }
+              }} style={{
                 flexShrink: 0, height: 28, padding: '0 9px', borderRadius: 8, border: 'none', background: '#A86659', color: '#fff',
-                fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-              }}>确认当前内容</button>
+                fontSize: 10.5, fontWeight: 600, cursor: resolvingConflict ? 'default' : 'pointer', opacity: resolvingConflict ? 0.65 : 1,
+              }}>{resolvingConflict ? '正在确认…' : '确认当前内容'}</button>
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -2349,6 +2358,10 @@ export function DeskView() {
       const result = await updateNote(noteId, updates);
       setNotes(result.notes);
       if (keepExpanded) setExpanded(result.note);
+      if (updates.resolveSyncConflict) {
+        setImportFeedback({ phase: 'complete', title: '冲突已确认', message: '当前内容已保留，冲突标记已清除' });
+        dismissImportFeedback('complete', 2200);
+      }
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : '保存失败';
       setImportFeedback({ phase: 'error', title: '没有保存成功', message });
@@ -3222,8 +3235,10 @@ export function DeskView() {
       {/* ── Header ── */}
       <header style={{
         position: 'sticky', top: 0, left: 0, right: 0, zIndex: 100,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 14,
+        display: 'grid', alignItems: 'center',
+        gridTemplateColumns: '170px minmax(230px, 360px) minmax(0, 1fr)',
+        gridTemplateAreas: '"brand search actions" "brand sort actions"',
+        columnGap: 14, rowGap: 5,
         padding: `${12 + TITLEBAR_SAFE_TOP}px 20px 11px ${20 + TITLEBAR_SAFE_LEFT}px`,
         background: 'rgba(235,233,228,0.92)',
         backdropFilter: 'blur(16px)',
@@ -3233,7 +3248,7 @@ export function DeskView() {
       className="titlebar-drag"
       data-tauri-drag-region=""
     >
-        <div style={{ width: 190, flexShrink: 0 }}>
+        <div style={{ gridArea: 'brand', width: 170, minWidth: 0 }}>
           <h1 style={{
             fontFamily: '"Playfair Display", Georgia, serif',
             fontSize: 16, fontWeight: 600, color: '#3A3840',
@@ -3247,7 +3262,7 @@ export function DeskView() {
         </div>
 
         <div style={{
-          width: 'clamp(250px, 24vw, 380px)', margin: '0 8px', flexShrink: 1,
+          gridArea: 'search', width: '100%', minWidth: 0,
           position: 'relative', display: 'flex', alignItems: 'center',
         }}>
           <Search size={14} strokeWidth={1.8} style={{ position: 'absolute', left: 13, color: '#8F8A82', pointerEvents: 'none' }} />
@@ -3273,7 +3288,8 @@ export function DeskView() {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
+        <div style={{ gridArea: 'sort', display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexShrink: 0, gap: 3, borderRadius: 8, border: '1px solid rgba(73,56,28,0.07)', overflow: 'hidden' }}>
           {([['newest', t('newest')], ['oldest', t('oldest')], ['title', t('title')], ['lastRead', '最近阅读']] as const).map(([key, label]) => (
             <button key={key} onClick={() => setSortBy(key)}
               className="titlebar-no-drag"
@@ -3299,8 +3315,12 @@ export function DeskView() {
           }}>
           {t('batchMode')}
         </button>
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div className="header-action-rail" style={{
+          gridArea: 'actions', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6,
+          minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', padding: '2px 0', whiteSpace: 'nowrap',
+        }}>
           <motion.button
             whileHover={{ y: -1, scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
@@ -3549,7 +3569,7 @@ export function DeskView() {
                 ['read', '已读', CheckCircle2],
                 ['recent', '近 7 天读过', History],
                 ['today', '今日收录', CalendarDays],
-                ['conflict', '同步冲突', AlertTriangle],
+                ['conflict', '合并冲突', AlertTriangle],
               ] as const).map(([key, label, Icon]) => {
                 const active = statusFilter === key;
                 return (
@@ -4023,7 +4043,7 @@ export function DeskView() {
             note={expanded}
             onClose={() => setExpanded(null)}
             onDelete={() => void handleDeleteNote(expanded)}
-            onUpdate={(updates) => void handleUpdateNote(expanded.id, updates)}
+            onUpdate={(updates) => handleUpdateNote(expanded.id, updates)}
             onTranscribe={() => handleTranscribeNote(expanded.id)}
             onNoteChanged={(updatedNote) => {
               setExpanded(updatedNote);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kanbox · Quick Import",
-  "version": "0.8.16",
+  "version": "0.8.17",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5Ct4OV8CiLTGmYU2kT8ilQ1vVd0xpKWo8zybIRfcSYXdGGgAxDuIIbPEMNqeZwTZEoGWFxZDKzNduBhn0yPISPq3EfA0J258P7laTcwdE06drO1h97IozkuZe61hqYFpmxLjKOeEZKciwCiykKF49ebLgz1e2m/cxensN7TGBllZcuKpcg9HY8ZA7Q9NrMjb27h+fI3wmTrbuMBbwM6Aq0I3w+e1sfM1cbyqyKJ+HD9RCxU+ql34arOrnRCPmsieZDvA7la9g5OPxYnvhEJw0VgT9leVk4vIbcwOVN83RDDGtwqtVimH41nIDB+JFClZQywVr6pBVNEvS5l69ZDpbQIDAQAB",
   "description": "Save individual public Xiaohongshu notes to your local Kanbox library.",
   "permissions": [

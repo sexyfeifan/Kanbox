@@ -291,7 +291,7 @@ const KANBOX_EXTENSION_ID = 'hkbccnanebneecicifkmlhijckfceipf';
 
 // 备份文件 schema 版本：手动与自动备份此前不一致（0.0.3 vs 0.2.0），统一为一个常量，
 // 随应用版本号一起 bump（P2#11）。
-const BACKUP_VERSION = '0.8.16';
+const BACKUP_VERSION = '0.8.17';
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;

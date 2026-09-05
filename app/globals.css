@@ -167,3 +167,13 @@ body.wall-mode {
   -webkit-user-select: auto;
   user-select: auto;
 }
+.header-action-rail::-webkit-scrollbar {
+  display: none;
+}
+.header-action-rail > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.header-action-rail > button:first-child {
+  margin-left: auto;
+}
